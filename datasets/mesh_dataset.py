@@ -1,0 +1,675 @@
+'''
+-----------------------------------------------------------------------------
+Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
+
+NVIDIA CORPORATION and its licensors retain all intellectual property
+and proprietary rights in and to this software, related documentation
+and any modifications thereto. Any use, reproduction, disclosure or
+distribution of this software and related documentation without an express
+license agreement from NVIDIA CORPORATION is strictly prohibited.
+-----------------------------------------------------------------------------
+'''
+
+import os
+import random
+import trimesh
+import numpy as np
+
+import sys
+sys.path.append('.')
+from utils.ot_utils import optimal_sum_numpy
+
+
+import torch
+from torch.utils.data import Dataset, DataLoader
+
+import kiui
+from kiui.mesh_utils import decimate_mesh
+# from core.options import Options
+# from core.utils import normalize_mesh
+import tqdm
+
+
+
+def generate_custom_prior(num_samples, var_scale=0.05):
+    """
+    return [N, 3, 3]   triangle soup
+    """
+    centriod = np.random.randn(num_samples, 1, 3) 
+    
+    # draw two vertices from smaller Gaussian
+    offsets23 = np.random.randn(num_samples, 2, 3) * var_scale # [N, 2, 3]
+    vertice23 = centriod + offsets23  # [N, 2, 3]
+    offsets1 = -np.sum(offsets23, axis=1, keepdims=True) # [N, 1, 3]
+    vertice1 =  offsets1 + centriod  # [N, 1, 3]
+    return np.concatenate([vertice23, vertice1], axis=1)  # [N, 3, 3]
+
+
+def save_mesh(tokens: np.ndarray, path: str, clean: bool = True):
+    # [N, 3, 3] -> mesh
+    def simple_detokenize_mesh(tokens: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        coords = tokens.reshape(-1, 3).astype(np.float32)
+        # coords = (coords + 1) / 2 
+        vertices = coords
+
+        faces = np.arange(len(vertices)).reshape(-1, 3)
+        vertices = vertices[:, [2, 1, 0]]  # zyx to xyz
+
+        return vertices, faces
+
+    vertices, faces = simple_detokenize_mesh(tokens=tokens)
+
+    mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
+
+    if clean:
+        mesh.merge_vertices()
+        mesh.update_faces(mesh.unique_faces())
+        mesh.fix_normals()
+
+    mesh.export(path)
+
+
+def sort_triangle_soup(triangle_soup: np.ndarray):
+    """
+    sorts a triangle soup. tiangle_soup [N, 3, 3]
+    """
+    # Cast into shape that we can work on.
+    N = triangle_soup.shape[0]
+    orig_shape = triangle_soup.shape
+    triangle_soup = triangle_soup.reshape(N, 3, 3)
+    
+    # sort each face's vertices
+    triangle_soup_w_face_id = np.concatenate(
+        (triangle_soup[..., ::-1], np.arange(N).reshape(-1, 1, 1).repeat(3, axis=1)), 
+        axis=2) # [N, 3, 4]
+    triangle_soup_min_v_id = np.lexsort(triangle_soup_w_face_id.transpose(2, 0, 1).reshape(4, -1), axis=-1).reshape(N, 3)[:, 0] # [N]
+    triangle_soup_min_v_id -= np.arange(N) * 3 # [N]
+    triangle_soup_v_sorted_id = np.stack([triangle_soup_min_v_id, triangle_soup_min_v_id+1, triangle_soup_min_v_id+2], axis=1) % 3 # [N, 3]
+    v_sorted_triangle_soup = np.take_along_axis(triangle_soup, triangle_soup_v_sorted_id[..., None], axis=1) # [N, 3, 3]   
+    
+    # sort face's based on vertices 
+    triangle_soup_sorted_id = np.lexsort(v_sorted_triangle_soup.transpose(1, 2, 0).reshape(9, N)[::-1], axis=-1) # [N]
+    triangle_soup_sorted = v_sorted_triangle_soup[triangle_soup_sorted_id] # [N, 3, 3]
+   
+    # Back to original shape
+    triangle_soup_sorted = triangle_soup_sorted.reshape(*orig_shape)
+    return triangle_soup_sorted
+
+
+def rotate_mesh_with_normal(vertices):
+    angle_options = np.array([0, np.pi/2, np.pi, 3*np.pi/2])  # 0, 90, 180, 270 degrees
+    angle_y = np.random.choice(angle_options)
+
+    R_y = np.array([[np.cos(angle_y), 0, np.sin(angle_y)],
+                    [0, 1, 0],
+                    [-np.sin(angle_y), 0, np.cos(angle_y)]])
+
+    rotated_vertices = np.dot(vertices, R_y.T)
+    # rotated_pc = np.dot(pc_coor, R_y.T)
+    # rotated_normal = np.dot(normal, R_y.T)
+
+    return rotated_vertices #, rotated_pc, rotated_normal
+
+
+def tokenize_mesh(vertices, faces, discrete_bins=None, shuffle=False, shuffle_vertex=False, scale_aug=False):
+    # vertices: [N, 3]
+    # faces: [M, 3]
+    if True:
+        vertices = vertices[:, [2, 1, 0]] # 转置xyz -> zyx
+        if discrete_bins != None:
+            vertices = vertices / 2 + 0.5
+            vertices = np.round(vertices * discrete_bins) / discrete_bins * 2 - 1
+        
+        # clean mesh before triangle soup
+        # vertices, faces = clean_mesh(vertices, faces, min_f=0, min_d=0, remesh=False, verbose=False)
+        
+        triangle_soup = vertices[faces] # [N, 3, 3]
+        if shuffle:
+            np.random.shuffle(triangle_soup) # random shuffle the faces
+            
+        if shuffle_vertex:
+            N = triangle_soup.shape[0]
+            all_perm = np.array([[0,1,2], [1,2,0], [2,0,1]])
+            perm = np.random.randint(0,3, size=(triangle_soup.shape[0],))
+            triangle_soup = triangle_soup[np.arange(N)[:, None], all_perm[perm]]
+            
+            # triangle_soup = triangle_soup[:, np.random.permutation(3)] # FIXME, only 6 perm for all faces
+        if scale_aug:
+            triangle_soup = triangle_soup * np.random.uniform(0.5, 2.0, size=(1, 1, 3,)) # [3, N, 3, 3]
+        
+        # prequantization
+        if discrete_bins != None:
+            triangle_soup = triangle_soup / 2 + 0.5
+            triangle_soup = np.round(triangle_soup * discrete_bins) / discrete_bins * 2 - 1
+        return triangle_soup # [N, 3, 3]
+
+class ObjaverseDataset(Dataset):
+    def __init__(self, data_pth, 
+                 noise_sort='ot',
+                 training=True,
+                 do_dataset_normalize=True,
+                 use_custom_prior=False,
+                 use_decimated_dataset=False,
+                 max_face_length=800):
+        self.cond = 49
+        self.data_pth = data_pth
+        self.training = training
+        self.use_custom_prior = use_custom_prior
+        self.use_decimated_dataset = use_decimated_dataset
+        self.do_dataset_normalize = do_dataset_normalize
+        self.max_face_length = max_face_length
+        
+        data_dir = "dummy/cow" # "objaverse_occ_v5_ids"
+        split_dir = "dummy/cow_npz" # "split"
+        
+        if self.training:
+            split = np.load(os.path.join(data_pth, split_dir, "train.npz"), allow_pickle=True)['npz_list'].tolist()
+        else:
+            split = np.load(os.path.join(data_pth, split_dir, "test.npz"), allow_pickle=True)['npz_list'].tolist()
+        split_uids = [item['uid'] for item in split]
+        if self.training and self.use_decimated_dataset:
+            data_path = os.path.join(self.data_pth, "objaverse_occ_v5_ids_decimated")
+        else:
+            data_path = os.path.join(self.data_pth, data_dir)
+
+        # load all meshes from dataset directory
+        all_dataset = os.listdir(data_path)
+        print(f'[INFO] Loading {data_path}...')
+        
+        data = []
+        for mesh in tqdm.tqdm(all_dataset):
+            if mesh.endswith('.npz') and mesh.split(".")[0] in split_uids: # MUST CHECK
+                mesh_path = os.path.join(data_path, mesh)
+                data.append(np.load(mesh_path, allow_pickle=True))
+                assert data[-1]['faces_num']
+        
+        split_set = 'train' if training else 'test'
+        print(f"{split_set} dataset total data samples: {len(split)}")
+
+        # filter mesh with max face length
+        self.data = []
+        for cur_data in data: 
+            num_faces = cur_data['faces_num']
+            if num_faces > 20 and num_faces < max_face_length:
+                self.data.append(cur_data)
+        
+        if split_set == 'train':
+            self.data = self.data * 100000
+
+        print(f"{split_set} dataset total data samples after filter: {len(self.data)}")
+        
+        # augmentation log
+        # if not self.opt.use_rot_aug:
+        #     print('[INFO] Not using rotation augmentation.')
+        # if not self.opt.use_scale_aug:
+        #     print('[INFO] Not using scale augmentation.')
+            
+        self.noise_sort = noise_sort # random / sort
+        
+        if do_dataset_normalize:
+            self.std = 0.3
+            # std = np.load(os.path.join(opt.data_pth, 'objaverse_mean_std.npz'), allow_pickle=True)['std']
+            # self.std = std[[2, 1, 0]] # sync with tokenize 
+            
+    def __len__(self):
+        return len(self.data)
+    
+    def save_mesh(self, dir, name, vertices,faces):
+        cur_mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
+        cur_mesh.export(f"{dir}/{name}.ply")
+    
+    def save_data(self, dir, name, data):
+        vertices, faces = data["vertices"], data["faces"]
+        cur_mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
+        cur_mesh.export(f"{dir}/{name}.ply")
+
+    def sort_vertices_and_faces(self, vertices_, faces_, num_tokens=None):
+        assert (vertices_ <= 0.5).all() and (vertices_ >= -0.5).all() # [-0.5, 0.5]
+        
+        if num_tokens is not None:
+            vertices = (vertices_+0.5) * num_tokens # [0, num_tokens]
+            vertices -= 0.5 # for evenly distributed, [-0.5, num_tokens -0.5] will be round to 0 or num_tokens (-1)
+            vertices_quantized_ = np.clip(vertices.round(), 0, num_tokens-1).astype(int)  # [0, num_tokens -1]
+            origin_face_num = len(faces_)
+
+            cur_mesh = trimesh.Trimesh(vertices=vertices_quantized_, faces=faces_)
+
+            cur_mesh.merge_vertices()
+            cur_mesh.update_faces(cur_mesh.nondegenerate_faces())
+            cur_mesh.update_faces(cur_mesh.unique_faces())
+            cur_mesh.remove_unreferenced_vertices()
+            vertices_ = cur_mesh.vertices
+            faces_ = cur_mesh.faces
+
+        sort_inds = np.lexsort((vertices_.T[0,:], vertices_.T[2,:], vertices_.T[1,:])) # 按照yzx排序
+        
+        vertices = vertices_[sort_inds]
+        faces = [np.argsort(sort_inds)[f] for f in faces_]
+
+        faces = [sorted(sub_arr) for sub_arr in faces]
+        def sort_faces(face):
+            return face[0], face[1], face[2]
+        
+        faces = sorted(faces, key=sort_faces)
+        
+        if num_tokens is not None:
+            vertices = vertices / num_tokens - 0.5  # [0, num_tokens -1] to [-0.5, 0.5)  for computing
+        return vertices, faces
+
+    def sample_noise(self, triangle_soup):
+        if not self.use_custom_prior:
+            noise = np.random.randn(*triangle_soup.shape)
+        else:
+            noise = generate_custom_prior(triangle_soup.shape[0])
+        if self.noise_sort == 'random':
+            return triangle_soup, noise
+        elif self.noise_sort == 'sort':
+            return sort_triangle_soup(triangle_soup), sort_triangle_soup(noise)
+        elif self.noise_sort == 'ot':
+            noise = optimal_sum_numpy(triangle_soup, noise, optimal=True)
+            return triangle_soup, noise
+        else:
+            raise ValueError(f"Invalid noise sort: {self.noise_sort}")
+    
+    def tokenize_mesh(self, vertices, faces, shuffle_face=True, shuffle_vertex=True, discrete_bins=None):
+        triangle_soup = vertices[faces]  # [N, 3, 3]
+        if shuffle_face:
+            np.random.shuffle(triangle_soup)
+        if shuffle_vertex:
+            N = triangle_soup.shape[0]
+            all_perm = np.array([[0,1,2], [1,2,0], [2,0,1]])
+            perm = np.random.randint(0,3, size=(triangle_soup.shape[0],))
+            triangle_soup = triangle_soup[np.arange(N)[:, None], all_perm[perm]]
+        
+        if discrete_bins is not None:
+            triangle_soup = np.round(triangle_soup * discrete_bins) / discrete_bins
+        return triangle_soup # [N, 3, 3]
+    
+    def detokenize_mesh(self, tokens, discrete_bins=None, tokenizer=None):
+        # tokens: [M, 9]
+        if tokenizer is None:
+            coords = tokens.reshape(-1, 3) # [N, 3]
+            if self.do_dataset_normalize:
+                coords = coords * self.std
+            # renormalize to [-1, 1]
+            if discrete_bins is not None:
+                coords = coords.clip(-1, 1)
+                coords = (coords + 1) / 2 # [-1, 1] -> [0, 1]
+                try:
+                    vertices = np.round(coords * discrete_bins) / discrete_bins
+                except:
+                    vertices = np.round(coords * discrete_bins).astype(np.int32) / discrete_bins
+                vertices = vertices * 2 - 1
+            else:
+                coords = (coords + 1) / 2 # [-1, 1] -> [0, 1]
+                vertices = coords
+            faces = np.arange(len(vertices)).reshape(-1, 3)
+            vertices = vertices[:, [2, 1, 0]] # zyx to xyz
+
+        return vertices, faces
+
+
+    def __getitem__(self, idx):
+        try:
+            data = self.data[idx]
+            vertices = data['vertices']
+            faces = data['faces']
+            faces_num = data['faces_num']
+            assert vertices.shape[1] == 3 and faces.shape[1] == 3
+            data_dict = {}
+            if 'category' in data:
+                data_dict['uid'] = data['category']+'_'+data['uid']
+            else:
+                data_dict['uid'] = data['uid']
+            # scale x, y, z
+            bounds = np.array([vertices.min(axis=0), vertices.max(axis=0)])
+            vertices = vertices - (bounds[0] + bounds[1])[None, :] / 2
+            vertices = vertices / (bounds[1] - bounds[0]).max()
+            # aligned from now on
+            # if self.opt.use_scale_aug:
+            #     x_lims = (0.75, 1.25)
+            #     y_lims = (0.75, 1.25)
+            #     z_lims = (0.75, 1.25)
+
+            #     x = np.random.uniform(low=x_lims[0], high=x_lims[1], size=(1,))
+            #     y = np.random.uniform(low=y_lims[0], high=y_lims[1], size=(1,))
+            #     z = np.random.uniform(low=z_lims[0], high=z_lims[1], size=(1,))
+            #     vertices = np.stack([vertices[:, 0] * x, vertices[:, 1] * y, vertices[:, 2] * z], axis=-1)
+
+            # normalize x, y, z
+            bounds = np.array([vertices.min(axis=0), vertices.max(axis=0)])
+            vertices = vertices - (bounds[0] + bounds[1])[None, :] / 2
+            # if self.opt.use_rot_aug:
+            #     vertices = rotate_mesh_with_normal(vertices)
+
+            # scale to -0.5 to 0.5
+            bounds = np.array([vertices.min(axis=0), vertices.max(axis=0)])
+            vertices = vertices - (bounds[0] + bounds[1])[None, :] / 2
+            vertices = vertices / (bounds[1] - bounds[0]).max()
+            vertices = vertices.clip(-0.5, 0.5)
+            assert vertices.min() >= -0.5 and vertices.max() <= 0.5
+            vertices, faces = self.sort_vertices_and_faces(vertices, faces)
+            if vertices is None:
+                # sample another data
+                return self.__getitem__(np.random.randint(0, len(self.data)))
+            coords = self.tokenize_mesh(vertices, faces) # [N, 3, 3] FIXME: shuffle faces/vertices
+            if self.do_dataset_normalize:
+                coords = coords / self.std
+            coords, noise = self.sample_noise(coords) # [N, 3, 3], [N, 3, 3]
+            data_dict['cond'] = self.cond # [N] for class
+            data_dict['coords'] = coords.reshape(faces_num, -1) 
+            data_dict['noise'] = noise.reshape(faces_num, -1)
+            data_dict['num_faces'] = faces_num
+            data_dict['len'] = faces_num
+            # data_dict['vertices'] = np.array(vertices)
+            # data_dict['faces'] = np.array(faces)
+            return data_dict
+        except Exception as e:
+            return self.__getitem__(np.random.randint(0, len(self.data)))
+    
+    
+# class MeshDataset(Dataset):
+#     def __init__(self, opt: Options, training=True, tokenizer=None):
+        
+#         self.opt = opt
+#         self.training = training
+
+#         # data list
+#         self.obj_path =  opt.data_pth     
+#         if self.obj_path.endswith('.obj'):   
+#             assert opt.num_subsample == 1
+#             mesh = trimesh.load(self.obj_path)
+#             self.items = [dict(vertices=np.asarray(mesh.vertices), faces=np.asarray(mesh.faces))]
+#         else: # load from shapenet
+#             data_dir = os.path.join(opt.data_pth, 'shapenet-split')
+#             cat_dict = kiui.read_json(os.path.join(opt.data_pth,f'shapenet_synset_dict_v2.json')) 
+            
+#             if opt.category == 'all':
+#                 raise NotImplementedError
+#             else: # single category training
+#                 cat_num = 0
+#                 for cat_id, cat in cat_dict.items():
+#                     if cat == opt.category:
+#                         break
+#                     cat_num += 1 # 49 for table
+            
+#             if self.training or opt.num_subsample > 0: 
+#                 if opt.use_decimated_dataset:
+#                     self.items = np.load(os.path.join(data_dir, f'{cat_id}_train_decimated.npz'), allow_pickle=True)['arr_0']
+#                 else:
+#                     self.items = np.load(os.path.join(data_dir, f'{cat_id}_train.npz'), allow_pickle=True)['arr_0']
+#             else:
+#                 self.items = np.load(os.path.join(data_dir, f'{cat_id}_val.npz'), allow_pickle=True)['arr_0']
+        
+#         self.cat = 49 # hard encoded (49 for all category)
+        
+#         # tokenizer
+#         self.tokenizer = tokenizer
+        
+#         if not self.opt.use_rot_aug:
+#             print('[INFO] Not using rotation augmentation.')
+#         if not self.opt.use_scale_aug:
+#             print('[INFO] Not using scale augmentation.')
+#         if not self.opt.use_decimate_aug:
+#             print('[INFO] Not using decimation augmentation.')
+            
+#         self.noise_sort = opt.noise_sort # random / sort
+        
+#         # filter face length        
+#         self.items = [item for item in self.items if item["faces"].shape[0] < opt.max_face_length] 
+        
+#         # dataset enlargement
+#         if opt.num_subsample > 0: 
+#             if training:
+#                 self.items = self.items[-opt.num_subsample:] # first subsample
+#                 self.items = self.items * 100000 * (1000 // opt.num_subsample) # enlarge dataset more
+#             else:
+#                 self.items = self.items[-opt.num_subsample:]
+#         else:
+#             if training:            
+#                 self.items = self.items * (500000 * 256 // len(self.items)) # enlarge dataset  
+        
+#         self.do_dataset_normalize = opt.do_dataset_normalize
+#         if self.do_dataset_normalize:
+#             if opt.num_subsample > 0:
+#                 std = mesh.vertices.std()
+#                 self.std = std
+#             else:
+#                 self.std = np.load(os.path.join(self.obj_path, f'{opt.category}_mean_std.npz'), allow_pickle=True)['std']
+#         print(f'[INFO] Number of items after filtering: {len(self.items)}')
+        
+#         self.mesh_shuffle = opt.mesh_shuffle > 0 # default: True
+#         if self.mesh_shuffle:
+#             print(f'[INFO] Mesh shuffle enabled: {self.mesh_shuffle}')
+#         else:
+#             print(f'[WARNING] Mesh shuffle disabled: {self.mesh_shuffle}')
+#         print(f'[INFO] Model Version: {opt.version}')
+            
+#     def __len__(self):
+#         return len(self.items)
+    
+#     def sample_noise(self, triangle_soup):
+#         if len(triangle_soup.shape) == 2:
+#             triangle_soup = triangle_soup.reshape(-1, 3, 3)        
+#         if not self.opt.use_custom_prior:
+#             noise = np.random.randn(*triangle_soup.shape)
+#         else:
+#             noise = generate_custom_prior(triangle_soup.shape[0])
+
+#         if self.noise_sort == 'random':
+#             return triangle_soup, noise
+#         elif self.noise_sort == 'sort':
+#             return sort_triangle_soup(triangle_soup), sort_triangle_soup(noise)
+#         elif self.noise_sort == 'ot':
+#             noise = optimal_sum_numpy(triangle_soup, noise, optimal=True)
+#             return triangle_soup, noise
+#         elif self.noise_sort == 'naive':
+#             noise = optimal_sum_numpy(triangle_soup, noise, optimal=False)
+#             return triangle_soup, noise
+#         else:
+#             raise ValueError(f"Invalid noise sort: {self.noise_sort}")
+
+#     def detokenize_mesh(self, tokens, discrete_bins=None, tokenizer=None):
+#         # tokens: [M, 9]
+#         if tokenizer is None:
+#             coords = tokens.reshape(-1, 3) # [N, 3]
+#             if self.do_dataset_normalize:
+#                 coords = coords * self.std
+#             # renormalize to [-1, 1]
+#             if discrete_bins is not None:
+#                 coords = coords.clip(-1, 1)
+#                 coords = (coords + 1) / 2 # [-1, 1] -> [0, 1]
+#                 try:
+#                     vertices = np.round(coords * discrete_bins) / discrete_bins
+#                 except:
+#                     vertices = np.round(coords * discrete_bins).astype(np.int32) / discrete_bins
+#                 vertices = vertices * 2 - 1
+#             else:
+#                 # coords = (coords + 1) / 2 # [-1, 1] -> [0, 1]
+#                 vertices = coords
+#             faces = np.arange(len(vertices)).reshape(-1, 3)
+#             vertices = vertices[:, [2, 1, 0]] # zyx to xyz
+
+#         return vertices, faces
+
+#     def __getitem__(self, idx):
+#         results = {}
+
+#         while True:
+#             try:
+#                 ### scale augmentation (not for image condition)
+#                 if self.opt.use_scale_aug and self.training:
+#                     bound = np.random.uniform(0.75, 0.95)
+#                 else:
+#                     bound = 0.5
+             
+#                 ### rotation augmentation
+#                 if self.training and self.opt.use_rot_aug:
+#                     # point/uncond
+#                     azimuth = np.random.choice(list(range(0, 360, 90)), 1)[0]
+#                 else:
+#                     azimuth = 0
+
+#                 ### load mesh
+#                 v, f = np.array(self.items[idx]['vertices']), np.array(self.items[idx]['faces'])
+#                 # already cleaned
+
+#                 # decimate mesh augmentation
+#                 if self.opt.use_decimate_aug and self.training:
+#                     if f.shape[0] >= 200 and random.random() < 0.5:
+#                         # at most decimate to 25% of original faces.
+#                         target = np.random.randint(max(100, f.shape[0] // 4), f.shape[0])
+#                         v, f = decimate_mesh(v, f, target=target, verbose=False, backend='pyfqmr')
+                        
+#                 # rotate augmentation
+#                 if azimuth != 0:
+#                     roty = np.stack([
+#                         [np.cos(np.radians(-azimuth)), 0, np.sin(np.radians(-azimuth))],
+#                         [0, 1, 0],
+#                         [-np.sin(np.radians(-azimuth)), 0, np.cos(np.radians(-azimuth))],
+#                     ])
+#                     v = v @ roty.T
+
+#                 # normalize after rotation in case of oob (augment scale)
+#                 v = normalize_mesh(v, bound=bound)
+#                 # v, f = clean_mesh(v, f, min_f=0, min_d=0, remesh=False, verbose=False)
+
+#                 # point cloud cond
+#                 if self.opt.cond_mode == 'cls':
+#                     cond = np.array(self.cat) # [N]
+#                 coords = tokenize_mesh(
+#                     v, f, discrete_bins=self.opt.discrete_bins, 
+#                     shuffle=self.mesh_shuffle, 
+#                     shuffle_vertex=self.mesh_shuffle,
+#                     )
+#                 break
+
+#             except Exception as e:
+#                 print(f'[ERROR] Exception occurred: {e}')
+#                 assert False
+        
+#         if self.opt.scale_factor > 0:
+#             coords = coords * self.opt.scale_factor
+#         if self.do_dataset_normalize:
+#             coords = coords/ self.std # [N, 3, 3]
+#         # Finally sampling noise
+#         coords, noise = self.sample_noise(coords) # [N, 3, 3], [N, 3, 3]
+#         results['cond'] = cond # [N] for class
+#         results['coords'] = coords.reshape(-1, 9) # [M] normalized to [-1, 1]
+#         results['noise'] = noise.reshape(-1, 9) # [M] normalized to [-1, 1]
+#         results['len'] = coords.shape[0] # [1]
+#         results['num_faces'] = f.shape[0] # [1]
+#         results['azimuth'] = azimuth # [1]
+#         results['vertices'] = v
+#         results['faces'] = f
+
+#         # a custom collate_fn is needed for padding and masking
+#         return results
+
+def collate_fn(batch, max_seq_length=800):
+
+    # conds
+    conds = [item['cond'] for item in batch]
+    num_faces = [item['num_faces'] for item in batch]
+
+    # get max len of this batch
+    max_len = max([item['len'] for item in batch])
+    max_len = min(max_len, max_seq_length)
+    
+    # pad or truncate to max_len, and prepare masks
+    tokens = []
+    noises = []
+    masks = []
+    input_c = batch[0]['coords'].shape[1] 
+    for item in batch:
+        if max_len >= item['len']:
+            pad_len = max_len - item['len']
+            tokens.append(np.concatenate([
+                item['coords'], # mesh tokens
+                np.full((pad_len, input_c), 0), # padding
+            ], axis=0)) # [M, 9]
+            
+            noises.append(np.concatenate([
+                item['noise'], # mesh tokens
+                np.full((pad_len, input_c), 0), # padding
+            ], axis=0)) # [M, 9]
+
+            masks.append(np.concatenate([
+                np.ones(item['len']), 
+                np.zeros(pad_len)
+            ], axis=0)) # [M]
+
+        else:
+            tokens.append(np.concatenate([
+                item['coords'][:max_len], # mesh tokens
+            ], axis=0))
+
+            masks.append(np.ones(max_len))
+
+    results = {}
+    # if opt.cond_mode == 'cls':
+    if False:
+        results['conds'] = torch.from_numpy(np.stack(conds, axis=0)).long()
+    else:
+        results['conds'] = torch.from_numpy(np.stack(conds, axis=0)).float()
+    results['num_faces'] = torch.from_numpy(np.stack(num_faces, axis=0)).long()
+    results['tokens'] = torch.from_numpy(np.stack(tokens, axis=0)).float() # [B, M]
+    results['noise'] = torch.from_numpy(np.stack(noises, axis=0)).float() # [B, M]
+    results['masks'] = torch.from_numpy(np.stack(masks, axis=0)).bool()
+    # results['vertices'] = [item['vertices'] for item in batch]
+    # results['faces'] = [item['faces'] for item in batch]
+    return results
+
+if __name__ == "__main__":
+    # test script: python core/provider_dit.py dit
+    # import tyro
+    # from core.options import AllConfigs
+    from functools import partial
+    
+    # opt = tyro.cli(AllConfigs)
+    # kiui.seed_everything(opt.seed)
+    # opt.max_face_length = 800
+    # opt.max_seq_length = 800
+    # opt.testset_size = 400 # 1/10 data as testset
+    # # opt.use_decimate_aug = True
+    # # opt.data_pth = '../../01_mesh_data'
+    # opt.data_pth = 'downloaded_data'
+    # opt.use_rot_aug = True
+    # opt.use_scale_aug = True
+    # opt.face_pi = True
+    # opt.vertex_pi = True
+    # opt.category = 'bench'
+    # opt.use_decimated_dataset = True
+
+    # tokenizer
+
+    dataset = ObjaverseDataset(data_pth='../downloaded_data', training=True)
+    # dataset = MeshDataset(opt, training=True)
+    print(len(dataset))
+    dataloader = DataLoader(
+        dataset,
+        batch_size=128,
+        shuffle=False,
+        collate_fn=partial(collate_fn, max_seq_length=800),
+    )
+    save_dir = 'debug/tmp_train_decimated'
+    os.makedirs(save_dir, exist_ok=True)
+    
+    for i, results in enumerate(dataloader):
+        if i >= 10:
+            break
+        # restore mesh
+        for b in range(len(results['masks'])):
+            masks = results['masks'][b].numpy()
+            tokens = results['tokens'][b].numpy()[masks] # [M, 9]
+            noise = results['noise'][b].numpy()[masks]
+            
+            # write obj using the original order to check face orientation
+            vertices, faces = dataset.detokenize_mesh(tokens, discrete_bins=None, tokenizer=None)
+            with open(f'{save_dir}/{i}_{b}.obj', 'w') as f:
+                for v in vertices:
+                    f.write(f'v {v[0]:.6f} {v[1]:.6f} {v[2]:.6f}\n')
+                for face in faces:
+                    f.write(f'f {" ".join([str(v+1) for v in face])}\n')
+
+            print(f'[INFO] tokens: {tokens.shape[0]}, faces: {faces.shape[0]}, ratio={100 * tokens.shape[0] / (9 * faces.shape[0]):.2f}%')

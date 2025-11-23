@@ -52,13 +52,14 @@ class Transport:
         partitial_train=None,
         partial_ratio=1.0,
         shift_lg=False,
+        use_jit=False,
     ):
         path_options = {
             PathType.LINEAR: path.ICPlan,
             PathType.GVP: path.GVPCPlan,
             PathType.VP: path.VPCPlan,
         }
-
+        
         self.loss_type = loss_type
         self.model_type = model_type
         self.path_sampler = path_options[path_type]()
@@ -69,6 +70,7 @@ class Transport:
         self.partitial_train = partitial_train
         self.partial_ratio = partial_ratio
         self.shift_lg = shift_lg
+        self.use_jit = use_jit
 
     def prior_logp(self, z):
         '''
@@ -190,6 +192,10 @@ class Transport:
         model_output = model(xt, t, **model_kwargs)
         B, *_, C = xt.shape
         assert model_output.size() == (B, *xt.size()[1:-1], C)
+        
+        if self.use_jit:
+            model_output = (model_output - xt) / (1-t.unsqueeze(-1).unsqueeze(-1).clamp_min(5e-2))
+            ut = (x1 - xt) / (1 - t.unsqueeze(-1).unsqueeze(-1).clamp_min(5e-2))
 
         terms = {}
         terms['pred'] = model_output
@@ -235,6 +241,8 @@ class Transport:
         
         def velocity_ode(x, t, model, **model_kwargs):
             model_output = model(x, t, **model_kwargs)
+            if self.use_jit:
+                model_output = (model_output - x) / (1 - t.unsqueeze(-1).unsqueeze(-1).clamp_min(5e-2))
             return model_output
 
         if self.model_type == ModelType.NOISE:

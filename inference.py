@@ -24,13 +24,13 @@ from datasets.img_latent_dataset import ImgLatentDataset
 from datasets.mesh_dataset import save_mesh
 
 @torch.no_grad()
-def do_sample_simple(model, valid_loader, device, transport, t_range, train_config, accelerator, train_steps):
+def do_sample_simple(model, valid_loader, device, transport, t_range, train_config, accelerator, train_steps, save_dir):
     sampler = Sampler(transport)
     mode = "ODE" # train_config['sample']['mode']
     timestep_shift = 0
     cfg_scale = 9.0
     
-    save_dir = f'debug/mesh_{train_steps}step'
+    save_dir = f'{save_dir}/mesh_{train_steps}step'
     os.makedirs(save_dir, exist_ok=True)
 
     if mode == "ODE":

@@ -105,6 +105,7 @@ def do_train(train_config, accelerator):
         train_config['transport']['sample_eps'],
         use_cosine_loss = train_config['transport']['use_cosine_loss'] if 'use_cosine_loss' in train_config['transport'] else False,
         use_lognorm = train_config['transport']['use_lognorm'] if 'use_lognorm' in train_config['transport'] else False,
+        use_jit=train_config['transport']['use_jit'] if 'use_jit' in train_config['transport'] else False,
     )  # default: velocity; 
     if accelerator.is_main_process:
         logger.info(f"LightningDiT Parameters: {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M")
@@ -267,7 +268,7 @@ def do_train(train_config, accelerator):
                 if 'valid_path' in train_config['data']:
                     if accelerator.is_main_process:
                         logger.info(f"Start evaluating at step {train_steps}")
-                    val_loss = do_sample_simple(model, valid_loader, device, transport, (0.0, 1.0), train_config, accelerator, train_steps)
+                    val_loss = do_sample_simple(model, valid_loader, device, transport, (0.0, 1.0), train_config, accelerator, train_steps, save_dir=experiment_dir)
                     dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
                     val_loss = val_loss.item() / dist.get_world_size()
                     if accelerator.is_main_process:

@@ -5,9 +5,11 @@ MeshFlow based on lightingDiT.
 
 ### TODO
 - [x] clean code
-- [ ] simple train & test
-- [ ] implement jit
+- [x] simple train & test
+- [x] implement jit
 
 ```bash
-bash run_train.sh configs/lightningdit_xl_vavae_f16d32.yaml
+bash run_train.sh configs/base.yaml
+
+bash run_train.sh configs/base_jit.yaml
 ```

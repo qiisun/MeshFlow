@@ -78,6 +78,7 @@ transport:
   train_eps: null
   use_cosine_loss: true
   use_lognorm: true
+  use_jit: false
 
 # recommend to use default settings
 sample:

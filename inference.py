@@ -30,8 +30,8 @@ def do_sample_simple(model, valid_loader, device, transport, t_range, train_conf
     timestep_shift = 0
     cfg_scale = 9.0
     
-    save_dir = f'{save_dir}/mesh_{train_steps}step'
-    os.makedirs(save_dir, exist_ok=True)
+    save_dir_mesh = f'{save_dir}/mesh_{train_steps}step'
+    os.makedirs(save_dir_mesh, exist_ok=True)
 
     if mode == "ODE":
         sample_fn = sampler.sample_ode(
@@ -65,11 +65,11 @@ def do_sample_simple(model, valid_loader, device, transport, t_range, train_conf
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
             # z: [2*bs, N, 9]
             # y: [2*bs]
-            # mask: [2*bs, N], no repeat
+            # mask: [bs, N], no repeat
             samples = sample_fn(z, model_fn, **model_kwargs)[-1]
         images.append(samples)
         # save meshes
-        save_mesh(samples[0].cpu().numpy(), f'{save_dir}/{i:03d}.obj')
+        save_mesh(samples[0].cpu().numpy(), f'{save_dir_mesh}/{i:03d}.obj')
     
     
     # update validation loss

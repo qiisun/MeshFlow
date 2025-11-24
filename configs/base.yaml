@@ -56,14 +56,14 @@ model:
 
 # recommend to use default settings
 train:
-  max_steps: 80000
-  global_batch_size: 12 # 8
+  max_steps: 400000
+  global_batch_size: 96 # 8
   global_seed: 0
   output_dir: 'output'
-  exp_name: 'lightningdit_xl_vavae_f16d32' # <---- experiment name, set as you like
+  exp_name: 'base' # <---- experiment name, set as you like
   ckpt: null
   log_every: 100
-  ckpt_every: 10000 # 20000
+  ckpt_every: 10000 # 100 for debug
   
 optimizer:
   lr: 0.0002
@@ -88,7 +88,7 @@ sample:
   rtol: 0.001
   reverse: false
   likelihood: false
-  num_sampling_steps: 250
+  num_sampling_steps: 50
   cfg_scale: 10.0 # <---- cfg scale, for 800 epoch performance with FID=1.35 cfg_scale=6.7
                   #       for 64 epoch performance with FID=2.11 cfg_scale=10.0
                   #       you may find we use a large cfg_scale, this is because of 2 reasons:

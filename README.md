@@ -9,6 +9,7 @@ MeshFlow based on lightingDiT.
 - [x] implement jit
 - [x] DDP for single-node multi-card training  (test error in evaluation, fixed)
 - [ ] dynamic allocator
+- [ ] prepare shapenet dataset (lamp)
 
 ```bash
 bash run_train.sh configs/base.yaml

@@ -244,8 +244,7 @@ def do_train(train_config, accelerator):
                                     val_loss, _, _ = loss_vae(x1, recon, posterior, mask=mask, kl_weight=1e-6)
                                     val_loss = val_loss.item()
                                     os.makedirs(f'{experiment_dir}/mesh_{train_steps}', exist_ok=True)
-                                    import ipdb; ipdb.set_trace()
-                                    save_mesh(recon.cpu().numpy(), f'{experiment_dir}/mesh_{train_steps}/{i:03d}.obj')
+                                    save_mesh(recon[0].to(torch.float32).cpu().numpy(), f'{experiment_dir}/mesh_{train_steps}/{i:03d}.obj')
 
                     if accelerator.is_main_process:
                         logger.info(f"Validation Loss: {val_loss:.4f}")

@@ -86,8 +86,6 @@ def do_train(train_config, accelerator):
     if accelerator.is_main_process:
         logger.info(f"LightningDiT Parameters: {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M")
         logger.info(f"Optimizer: AdamW, lr={train_config['optimizer']['lr']}, beta2={train_config['optimizer']['beta2']}")
-        logger.info(f'Use lognorm sampling: {train_config["transport"]["use_lognorm"]}')
-        logger.info(f'Use cosine loss: {train_config["transport"]["use_cosine_loss"]}')
     opt = torch.optim.AdamW(model.parameters(), lr=train_config['optimizer']['lr'], weight_decay=0, betas=(0.9, train_config['optimizer']['beta2']))
     
     # Setup data
@@ -98,6 +96,8 @@ def do_train(train_config, accelerator):
         use_custom_prior=train_config['data']['use_custom_prior'] if 'use_custom_prior' in train_config['data'] else False,
         use_decimated_dataset=train_config['data']['use_decimated_dataset'] if 'use_decimated_dataset' in train_config['data'] else False,
         do_dataset_normalize=train_config['data']['do_dataset_normalize'] if 'do_dataset_normalize' in train_config['data'] else False,
+        vae=True,
+        overfit=train_config['data']['overfit'] if 'overfit' in train_config['data'] else False,
     )
     batch_size_per_gpu = int(np.round(train_config['train']['global_batch_size'] / accelerator.num_processes))
     global_batch_size = batch_size_per_gpu * accelerator.num_processes
@@ -122,7 +122,8 @@ def do_train(train_config, accelerator):
         use_custom_prior=train_config['data']['use_custom_prior'] if 'use_custom_prior' in train_config['data'] else False,
         use_decimated_dataset=train_config['data']['use_decimated_dataset'] if 'use_decimated_dataset' in train_config['data'] else False,
         do_dataset_normalize=train_config['data']['do_dataset_normalize'] if 'do_dataset_normalize' in train_config['data'] else False,
-        vae=True
+        vae=True,
+        overfit=train_config['data']['overfit'] if 'overfit' in train_config['data'] else False,
     )
 
         valid_loader = DataLoader(
@@ -184,7 +185,7 @@ def do_train(train_config, accelerator):
                 x1 = x1.to(device)
                 y = y.to(device)
             recon, posterior, z = model(x1, cond=y, mask=mask)        
-            loss, rec_l, kl_l = loss_vae(x1, recon, posterior, mask=mask, kl_weight=1e-6)
+            loss, rec_l, kl_l = loss_vae(x1, recon, posterior, mask=mask, kl_weight=train_config['train']['kl_weight'])
             # loss = loss_dict["loss"].mean()
             opt.zero_grad()
             accelerator.backward(loss)
@@ -241,7 +242,7 @@ def do_train(train_config, accelerator):
                             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                                 with torch.no_grad():
                                     recon, posterior, z  = ema(x1, cond=y, mask=mask)
-                                    val_loss, _, _ = loss_vae(x1, recon, posterior, mask=mask, kl_weight=1e-6)
+                                    val_loss, _, _ = loss_vae(x1, recon, posterior, mask=mask, kl_weight=train_config['train']['kl_weight'])
                                     val_loss = val_loss.item()
                                     os.makedirs(f'{experiment_dir}/mesh_{train_steps}', exist_ok=True)
                                     save_mesh(recon[0].to(torch.float32).cpu().numpy(), f'{experiment_dir}/mesh_{train_steps}/{i:03d}.obj')

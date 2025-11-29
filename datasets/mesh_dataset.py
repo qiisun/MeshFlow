@@ -151,7 +151,8 @@ class ObjaverseDataset(Dataset):
                  use_custom_prior=False,
                  use_decimated_dataset=False,
                  max_face_length=800, 
-                 vae=False):
+                 vae=False,
+                 overfit=False):
         self.vae = vae
         self.data_pth = data_pth
         self.training = training
@@ -160,18 +161,15 @@ class ObjaverseDataset(Dataset):
         self.do_dataset_normalize = do_dataset_normalize
         self.max_face_length = max_face_length
         
-        data_dir = "dummy/cow" # "objaverse_occ_v5_ids"
-        split_dir = "dummy/cow_npz" # "split"
-        
         if self.training:
-            split = np.load(os.path.join(data_pth, split_dir, "train.npz"), allow_pickle=True)['npz_list'].tolist()
+            split = np.load(os.path.join(data_pth, 'split', "train.npz"), allow_pickle=True)['npz_list'].tolist()
         else:
-            split = np.load(os.path.join(data_pth, split_dir, "test.npz"), allow_pickle=True)['npz_list'].tolist()
+            split = np.load(os.path.join(data_pth, 'split', "test.npz"), allow_pickle=True)['npz_list'].tolist()
         split_uids = [item['uid'] for item in split]
         if self.training and self.use_decimated_dataset:
             data_path = os.path.join(self.data_pth, "objaverse_occ_v5_ids_decimated")
         else:
-            data_path = os.path.join(self.data_pth, data_dir)
+            data_path = os.path.join(self.data_pth, "objaverse_occ_v5_ids")
 
         # load all meshes from dataset directory
         all_dataset = os.listdir(data_path)
@@ -194,17 +192,11 @@ class ObjaverseDataset(Dataset):
             if num_faces > 20 and num_faces < max_face_length:
                 self.data.append(cur_data)
         
-        if split_set == 'train':
+        if split_set == 'train' and overfit:
             self.data = self.data * 100000
 
         print(f"{split_set} dataset total data samples after filter: {len(self.data)}")
         
-        # augmentation log
-        # if not self.opt.use_rot_aug:
-        #     print('[INFO] Not using rotation augmentation.')
-        # if not self.opt.use_scale_aug:
-        #     print('[INFO] Not using scale augmentation.')
-            
         self.noise_sort = noise_sort # random / sort
         
         if do_dataset_normalize:
@@ -354,7 +346,7 @@ class ObjaverseDataset(Dataset):
                 # sample another data
                 return self.__getitem__(np.random.randint(0, len(self.data)))
             coords = self.tokenize_mesh(vertices, faces) # [N, 3, 3] FIXME: shuffle faces/vertices
-            if self.do_dataset_normalize:
+            if self.do_dataset_normalize and (not self.vae):
                 coords = coords / self.std
             
             if not self.vae:    

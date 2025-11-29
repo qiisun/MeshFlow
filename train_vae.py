@@ -25,14 +25,13 @@ from glob import glob
 from copy import deepcopy
 from collections import OrderedDict
 
-from models.equidit import DiT
-from transport import create_transport
+from models.equivae import loss_vae, AutoencoderKL
 from accelerate import Accelerator
-from inference import do_sample_simple
 
 from datasets.mesh_dataset import ObjaverseDataset, collate_fn
+from datasets.mesh_dataset import save_mesh
+from tqdm import tqdm
 from functools import partial
-from models.loss import mesh_loss
 
 
 def do_train(train_config, accelerator):
@@ -69,21 +68,7 @@ def do_train(train_config, accelerator):
     rank = accelerator.local_process_index
 
     # Create model:
-    model = DiT(hidden_dim=train_config['model']['hidden_dim'], # 768
-                num_heads=train_config['model']['num_heads'],
-                max_length=train_config['model']['max_length'],
-                input_dim=train_config['model']['input_dim'],
-                num_layers=train_config['model']['num_layers'],
-                gradient_checkpointing = train_config['model']['gradient_checkpointing'],
-                use_coord_encoding=train_config['model']['use_coord_encoding'],
-                version = train_config['model']['version'],
-                pe_freq=train_config['model']['pe_freq'],
-                mixed_precision=train_config['model']['mixed_precision'],
-                use_dit_like_pe=train_config['model']['use_dit_like_pe'],
-                face_cond=train_config['model']['face_cond'],
-                face_bin=train_config['model']['face_bin'],
-                use_rmsnorm=train_config['model']['use_rmsnorm'] if 'use_rmsnorm' in train_config['model'] else False,
-            )
+    model = AutoencoderKL(latent_channels=4)
     ema = deepcopy(model).to(device)  # Create an EMA of the model for use after training
 
     # load pretrained model
@@ -98,16 +83,6 @@ def do_train(train_config, accelerator):
     requires_grad(ema, False)
     
     model = DDP(model.to(device), device_ids=[rank])
-    # transport = create_transport(
-    #     train_config['transport']['path_type'],
-    #     train_config['transport']['prediction'],
-    #     train_config['transport']['loss_weight'],
-    #     train_config['transport']['train_eps'],
-    #     train_config['transport']['sample_eps'],
-    #     use_cosine_loss = train_config['transport']['use_cosine_loss'] if 'use_cosine_loss' in train_config['transport'] else False,
-    #     use_lognorm = train_config['transport']['use_lognorm'] if 'use_lognorm' in train_config['transport'] else False,
-    #     use_jit=train_config['transport']['use_jit'] if 'use_jit' in train_config['transport'] else False,
-    # )  # default: velocity; 
     if accelerator.is_main_process:
         logger.info(f"LightningDiT Parameters: {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M")
         logger.info(f"Optimizer: AdamW, lr={train_config['optimizer']['lr']}, beta2={train_config['optimizer']['beta2']}")
@@ -147,6 +122,7 @@ def do_train(train_config, accelerator):
         use_custom_prior=train_config['data']['use_custom_prior'] if 'use_custom_prior' in train_config['data'] else False,
         use_decimated_dataset=train_config['data']['use_decimated_dataset'] if 'use_decimated_dataset' in train_config['data'] else False,
         do_dataset_normalize=train_config['data']['do_dataset_normalize'] if 'do_dataset_normalize' in train_config['data'] else False,
+        vae=True
     )
 
         valid_loader = DataLoader(
@@ -203,21 +179,13 @@ def do_train(train_config, accelerator):
 
             if accelerator.mixed_precision == 'no':
                 x1 = x1.to(device, dtype=torch.float32)
-                x0 = x0.to(device, dtype=torch.float32)
                 y = y
             else:
                 x1 = x1.to(device)
-                x0 = x0.to(device)
                 y = y.to(device)
-            model_kwargs = dict(y=y, mask=mask)
-                        
-            # loss_dict = transport.training_losses(model, x1, x0, model_kwargs)
-            loss_dict = mesh_loss(x1, x0, model, model_kwargs)
-            if 'cos_loss' in loss_dict:
-                mse_loss = loss_dict["loss"].mean()
-                loss = loss_dict["cos_loss"].mean() + mse_loss
-            else:
-                loss = loss_dict["loss"].mean()
+            recon, posterior, z = model(x1, cond=y, mask=mask)        
+            loss, rec_l, kl_l = loss_vae(x1, recon, posterior, mask=mask, kl_weight=1e-6)
+            # loss = loss_dict["loss"].mean()
             opt.zero_grad()
             accelerator.backward(loss)
             if 'max_grad_norm' in train_config['optimizer']:
@@ -227,10 +195,7 @@ def do_train(train_config, accelerator):
             update_ema(ema, model.module)
 
             # Log loss values:
-            if 'cos_loss' in loss_dict:
-                running_loss += mse_loss.item()
-            else:
-                running_loss += loss.item()
+            running_loss += loss.item()
             log_steps += 1
             train_steps += 1
             if train_steps % train_config['train']['log_every'] == 0:
@@ -269,9 +234,19 @@ def do_train(train_config, accelerator):
                 if 'valid_path' in train_config['data']:
                     if accelerator.is_main_process: # only validate on main process
                         logger.info(f"Start evaluating at step {train_steps}")
-                        val_loss = do_sample_simple(model, valid_loader, device, transport, (0.0, 1.0), train_config, accelerator, train_steps, save_dir=experiment_dir)
-                    # dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
-                    # val_loss = val_loss.item() / dist.get_world_size()
+                        for i, data in tqdm(enumerate(valid_loader), desc="Generating Demo Samples"):
+                            x1 = data['tokens'].to(device)
+                            y = data['num_faces'].to(device)
+                            mask = data['masks'].to(device)
+                            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                                with torch.no_grad():
+                                    recon, posterior, z  = ema(x1, cond=y, mask=mask)
+                                    val_loss, _, _ = loss_vae(x1, recon, posterior, mask=mask, kl_weight=1e-6)
+                                    val_loss = val_loss.item()
+                                    os.makedirs(f'{experiment_dir}/mesh_{train_steps}', exist_ok=True)
+                                    import ipdb; ipdb.set_trace()
+                                    save_mesh(recon.cpu().numpy(), f'{experiment_dir}/mesh_{train_steps}/{i:03d}.obj')
+
                     if accelerator.is_main_process:
                         logger.info(f"Validation Loss: {val_loss:.4f}")
                         writer.add_scalar('Loss/validation', val_loss, train_steps)

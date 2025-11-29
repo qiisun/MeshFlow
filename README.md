@@ -12,7 +12,14 @@ MeshFlow based on lightingDiT.
 - [ ] prepare shapenet dataset (lamp)
 
 ```bash
-bash run_train.sh configs/base.yaml
+bash tools/run_train.sh configs/base.yaml
 
-bash run_train.sh configs/base_jit.yaml
+# donot use jit
+bash tools/run_train.sh configs/base_jit.yaml
+
+
+# train auto-encoder
+bash tools/run_trainvae.sh configs/vae.yaml
 ```
+
+

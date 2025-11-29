@@ -1,58 +1,41 @@
-'''
------------------------------------------------------------------------------
-Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
-
-NVIDIA CORPORATION and its licensors retain all intellectual property
-and proprietary rights in and to this software, related documentation
-and any modifications thereto. Any use, reproduction, disclosure or
-distribution of this software and related documentation without an express
-license agreement from NVIDIA CORPORATION is strictly prohibited.
------------------------------------------------------------------------------
-'''
-
 import sys
 sys.path.append('.')
 import math
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from torch.utils.checkpoint import checkpoint
-import numpy as np
 
-
-from einops import rearrange
-from models.pos_embed import get_embedder
-from models.swiglu_ffn import SwiGLUFFN 
-from models.rmsnorm import RMSNorm
-from models.attention import SelfAttention, CrossAttention
 from models.utils import get_2d_sincos_pos_embed
-from models.equidit import modulate, FeedForward, LabelEmbedder, XEmbedder, VertexCrossAttention, DiTLayer, FinalLayer, GEGLU
+from models.equidit import LabelEmbedder, XEmbedder, VertexCrossAttention, DiTLayer, FinalLayer
 
 
 class AutoencoderKL(nn.Module):
     def __init__(self, 
                  in_channels=9, 
                  out_channels=9, 
+                 hidden_dim=768,
                  latent_channels=4):
         super().__init__()
         
         self.latent_channels = latent_channels
-        self.quant_linear = nn.Linear(in_channels, 2 * latent_channels) # 9 -> 4*2
+        self.quant_linear = nn.Linear(hidden_dim, 2 * latent_channels) # 9 -> 4*2
 
-        self.post_quant_linear = nn.Linear(latent_channels, out_channels)   
+        self.post_quant_linear = nn.Linear(latent_channels, hidden_dim)   
         
-        self.encoder = Model()   
-        self.decoder = Model()     
+        self.encoder = Model(hidden_dim=hidden_dim, model_type='encoder')   
+        self.decoder = Model(hidden_dim=hidden_dim, model_type='decoder')     
         
     def encode(self, x, cond, mask):
         """
-        编码过程：输入图像 -> 得到分布对象 (Posterior)
+        Input: [B, N, 9]
+        Output Posterior over: [B, 3*N, latent_dim]
         """
         h = self.encoder(x, cond, mask)
         moments = self.quant_linear(h)
-        posterior = DiagonalGaussianDistribution(moments, mask=mask)
-        return posterior
+        mask_expanded = mask.repeat_interleave(3, dim=1)
 
+        posterior = DiagonalGaussianDistribution(moments, mask=mask_expanded)
+        return posterior
+    
     def decode(self, z, cond, mask):
         """
         解码过程：输入 Latent -> 重建图像
@@ -126,12 +109,13 @@ class DiagonalGaussianDistribution(object):
 # modelify from equiDIT
 class Model(nn.Module):
     def __init__(self, hidden_dim=768, num_heads=12, max_length=800, 
-                 input_dim=9, num_layers=12, gradient_checkpointing=True, 
+                 input_dim=9, num_layers=6, gradient_checkpointing=True, 
                  class_dropout_prob=0.1, use_coord_encoding=True, 
                  version=3, pe_freq=20, mixed_precision='bf16',
                  use_dit_like_pe=False, face_cond=True, face_bin=10,
-                 use_rmsnorm=False):
+                 use_rmsnorm=False, model_type='encoder'):
         super().__init__()
+        self.model_type = model_type
         
         self.kl_weight = 1e-6
         self.use_l1_loss = True
@@ -141,7 +125,8 @@ class Model(nn.Module):
         self.use_coord_encoding = use_coord_encoding
         self.hidden_size = hidden_dim
         # project input
-        self.x_embedder = XEmbedder(hidden_dim, pe_freq=pe_freq, use_coord_encoding=use_coord_encoding, version=version)
+        if model_type == 'encoder':
+            self.x_embedder = XEmbedder(hidden_dim, pe_freq=pe_freq, use_coord_encoding=use_coord_encoding, version=version)
             
         # positional encoding (just use a learnable positional encoding)
         if use_dit_like_pe:
@@ -167,12 +152,14 @@ class Model(nn.Module):
         modulation_type = "mult" 
         self.vertex_cross_attn = VertexCrossAttention(
             modulation_type=modulation_type, hidden_dim=hidden_dim)
-        self.final_layer = FinalLayer(hidden_dim, input_dim, use_rmsnorm=use_rmsnorm) # input_dim: 9 for v2, 3 for v3
+        if model_type == 'decoder':
+            self.final_layer = FinalLayer(hidden_dim, input_dim, use_rmsnorm=use_rmsnorm) # input_dim: 9 for v2, 3 for v3
         self.initialize_weights()
     
 
     def initialize_weights(self):
         # Initialize transformer layers:
+        # 对于VAE来说，不能0初始化
         def _basic_init(module):
             if isinstance(module, nn.Linear):
                 torch.nn.init.xavier_uniform_(module.weight)
@@ -189,20 +176,10 @@ class Model(nn.Module):
         if self.face_cond:
             nn.init.normal_(self.y_embedder.embedding_table.weight, std=0.02)
 
-        # Initialize timestep embedding MLP:        
-        nn.init.normal_(self.x_embedder.mlp[0].weight, std=0.02)
-        nn.init.normal_(self.x_embedder.mlp[2].weight, std=0.02)
-
-        # Zero-out adaLN modulation layers in DiT blocks:
-        for block in self.layers:
-            nn.init.constant_(block.adaLN_modulation[-1].weight, 0)
-            nn.init.constant_(block.adaLN_modulation[-1].bias, 0)
-
-        # Zero-out output layers:
-        nn.init.constant_(self.final_layer.adaLN_modulation[-1].weight, 0)
-        nn.init.constant_(self.final_layer.adaLN_modulation[-1].bias, 0)
-        nn.init.constant_(self.final_layer.linear.weight, 0)
-        nn.init.constant_(self.final_layer.linear.bias, 0)
+        # Initialize embedding MLP:   
+        if self.model_type == "encoder":     
+            nn.init.normal_(self.x_embedder.mlp[0].weight, std=0.02)
+            nn.init.normal_(self.x_embedder.mlp[2].weight, std=0.02)
     
     def forward(self, x, y, mask=None):
         # x: [B, N, C], hidden states
@@ -210,17 +187,24 @@ class Model(nn.Module):
         # y: [B,], face number
         # mask: [B, N]
         # return: [B, N, C], updated hidden states
-        B, N, _ = x.shape
-        if self.version > 1:
-            x, x_ = self.x_embedder(x) # [B, N, C], [B*N, 3, C]
+        if self.model_type == 'decoder':
+            B, _, C = x.shape
+            x = x.view(B, -1, 3, C)
+            N = x.shape[1]
+            x_ = x.view(-1, 3, C) # keep the order 
+            x = x.mean(dim=2) # pooled face feature
         else:
-            x = self.x_embedder(x) # [B, N, C]
+            B, N, _ = x.shape
+            if self.version > 1:
+                x, x_ = self.x_embedder(x) # [B, N, C], [B*N, 3, C]
+            else:
+                x = self.x_embedder(x) # [B, N, C]
             
-        # positional encoding
+        # positional encoding (default: None)
         if self.use_dit_like_pe: 
             x = x + self.pos_embed[:, :N, :]
 
-        # only timestep encoding
+        # only face encoding
         if self.face_cond:
             y = self.y_embedder(y // self.face_bin, self.training)
             c = y
@@ -237,47 +221,44 @@ class Model(nn.Module):
             x = x.view(B*N, 1, self.hidden_size)
             x = self.vertex_cross_attn(x_, x) # [B*N, 3, C]
             x = x.view(B, N*3, -1)
-            
+        
+        if self.model_type == 'encoder':
+            return x # [b, N*3, C]
         x = self.final_layer(x, c) # v2: [B, N*3, 3]
         
         if self.version > 1:
             x = x.view(B, N, 9)
         return x
 
-class VAELoss(nn.Module):
-    def __init__(self, kl_weight=1e-6):
-        super().__init__()
-        self.kl_weight = kl_weight
+def _masked_mean(x, mask):
+    if mask is None: 
+        return x.mean()
+    if x.dim() > mask.dim(): 
+        mask = mask.unsqueeze(-1)
+    if x.shape[1] != mask.shape[1]:
+         scale = x.shape[1] // mask.shape[1]
+         mask = mask.repeat_interleave(scale, dim=1)
+    return (x * mask).sum() / (mask.expand_as(x).sum() + 1e-8)
 
-    def _masked_mean(self, x, mask):
-        if mask is None: 
-            return x.mean()
-        # 自动将 mask [B, N] 扩展为 [B, N, 1] 以匹配 x [B, N, C]
-        if x.dim() > mask.dim(): 
-            mask = mask.unsqueeze(-1)
-        # 核心：只计算 mask=1 的部分的平均值
-        return (x * mask).sum() / (mask.expand_as(x).sum() + 1e-8)
+def loss_vae(inputs, recon, posterior, mask=None, kl_weight=1e-6):
+    # 1. 计算原始 diff
+    rec_diff = torch.abs(inputs - recon)
+    kl_diff = posterior.kl() # [B, N] or [B, N, C]
 
-    def forward(self, inputs, recon, posterior, mask=None):
-        # 1. 计算原始 diff
-        rec_diff = torch.abs(inputs - recon)
-        kl_diff = posterior.kl() # [B, N] or [B, N, C]
+    # 2. 应用 Mask 并求平均
+    rec_loss = _masked_mean(rec_diff, mask)
+    kl_loss = _masked_mean(kl_diff, mask)
 
-        # 2. 应用 Mask 并求平均
-        rec_loss = self._masked_mean(rec_diff, mask)
-        kl_loss = self._masked_mean(kl_diff, mask)
-
-        # 3. 加权求和
-        loss = rec_loss + self.kl_weight * kl_loss
-        
-        return loss, rec_loss, kl_loss
+    # 3. 加权求和
+    loss = rec_loss + kl_weight * kl_loss
+    
+    return loss, rec_loss, kl_loss
     
 
 if __name__ == '__main__':    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     n, c = 800, 9
     model = AutoencoderKL(latent_channels=4).cuda()
-    loss_fn = VAELoss().cuda()
 
     x = torch.randn(2, n, c).cuda() # Batch=2
     cond = torch.randint(0, 16, (2,)).cuda() # Batch=2
@@ -286,6 +267,6 @@ if __name__ == '__main__':
     with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
         recon, posterior, z = model(x, cond=cond, mask=mask)
 
-    loss, rec_l, kl_l = loss_fn(x, recon, posterior)
+    loss, rec_l, kl_l = loss_vae(x, recon, posterior, mask=mask)
     model.eval()
     

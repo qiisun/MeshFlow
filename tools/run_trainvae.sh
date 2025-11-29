@@ -1,12 +1,15 @@
 CONFIG_PATH=$1
 
+
+TARGET_GPU_ID=7,6
 GPUS_PER_NODE=1
-NNODES=1
-NODE_RANK=0
-MASTER_ADDR=${MASTER_ADDR:-127.0.0.1}
-MASTER_PORT=${MASTER_PORT:-1235}
-WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 PRECISION=${PRECISION:-bf16}
+# GPUS_PER_NODE=${GPUS_PER_NODE:-1}
+NNODES=${WORLD_SIZE:-1}
+NODE_RANK=${RANK:-0}
+MASTER_ADDR=${MASTER_ADDR:-127.0.1.2}
+MASTER_PORT=${MASTER_PORT:-1231}
+WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
 accelerate launch \
     --main_process_ip $MASTER_ADDR \
@@ -15,6 +18,8 @@ accelerate launch \
     --num_processes  $(($GPUS_PER_NODE*$NNODES)) \
     --num_machines $NNODES \
     --mixed_precision $PRECISION \
-    inference.py \
-    --config $CONFIG_PATH \
-    --demo
+    --gpu_ids $TARGET_GPU_ID \
+    train_vae.py \
+    --config $CONFIG_PATH
+
+

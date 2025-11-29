@@ -150,8 +150,9 @@ class ObjaverseDataset(Dataset):
                  do_dataset_normalize=True,
                  use_custom_prior=False,
                  use_decimated_dataset=False,
-                 max_face_length=800):
-        self.cond = 49
+                 max_face_length=800, 
+                 vae=False):
+        self.vae = vae
         self.data_pth = data_pth
         self.training = training
         self.use_custom_prior = use_custom_prior
@@ -355,221 +356,22 @@ class ObjaverseDataset(Dataset):
             coords = self.tokenize_mesh(vertices, faces) # [N, 3, 3] FIXME: shuffle faces/vertices
             if self.do_dataset_normalize:
                 coords = coords / self.std
-            coords, noise = self.sample_noise(coords) # [N, 3, 3], [N, 3, 3]
-            data_dict['cond'] = self.cond # [N] for class
+            
+            if not self.vae:    
+                coords, noise = self.sample_noise(coords) # [N, 3, 3], [N, 3, 3]
+                data_dict['noise'] = noise.reshape(faces_num, -1)
+            
             data_dict['coords'] = coords.reshape(faces_num, -1) 
-            data_dict['noise'] = noise.reshape(faces_num, -1)
             data_dict['num_faces'] = faces_num
             data_dict['len'] = faces_num
-            # data_dict['vertices'] = np.array(vertices)
-            # data_dict['faces'] = np.array(faces)
+
             return data_dict
         except Exception as e:
             return self.__getitem__(np.random.randint(0, len(self.data)))
     
-    
-# class MeshDataset(Dataset):
-#     def __init__(self, opt: Options, training=True, tokenizer=None):
-        
-#         self.opt = opt
-#         self.training = training
-
-#         # data list
-#         self.obj_path =  opt.data_pth     
-#         if self.obj_path.endswith('.obj'):   
-#             assert opt.num_subsample == 1
-#             mesh = trimesh.load(self.obj_path)
-#             self.items = [dict(vertices=np.asarray(mesh.vertices), faces=np.asarray(mesh.faces))]
-#         else: # load from shapenet
-#             data_dir = os.path.join(opt.data_pth, 'shapenet-split')
-#             cat_dict = kiui.read_json(os.path.join(opt.data_pth,f'shapenet_synset_dict_v2.json')) 
-            
-#             if opt.category == 'all':
-#                 raise NotImplementedError
-#             else: # single category training
-#                 cat_num = 0
-#                 for cat_id, cat in cat_dict.items():
-#                     if cat == opt.category:
-#                         break
-#                     cat_num += 1 # 49 for table
-            
-#             if self.training or opt.num_subsample > 0: 
-#                 if opt.use_decimated_dataset:
-#                     self.items = np.load(os.path.join(data_dir, f'{cat_id}_train_decimated.npz'), allow_pickle=True)['arr_0']
-#                 else:
-#                     self.items = np.load(os.path.join(data_dir, f'{cat_id}_train.npz'), allow_pickle=True)['arr_0']
-#             else:
-#                 self.items = np.load(os.path.join(data_dir, f'{cat_id}_val.npz'), allow_pickle=True)['arr_0']
-        
-#         self.cat = 49 # hard encoded (49 for all category)
-        
-#         # tokenizer
-#         self.tokenizer = tokenizer
-        
-#         if not self.opt.use_rot_aug:
-#             print('[INFO] Not using rotation augmentation.')
-#         if not self.opt.use_scale_aug:
-#             print('[INFO] Not using scale augmentation.')
-#         if not self.opt.use_decimate_aug:
-#             print('[INFO] Not using decimation augmentation.')
-            
-#         self.noise_sort = opt.noise_sort # random / sort
-        
-#         # filter face length        
-#         self.items = [item for item in self.items if item["faces"].shape[0] < opt.max_face_length] 
-        
-#         # dataset enlargement
-#         if opt.num_subsample > 0: 
-#             if training:
-#                 self.items = self.items[-opt.num_subsample:] # first subsample
-#                 self.items = self.items * 100000 * (1000 // opt.num_subsample) # enlarge dataset more
-#             else:
-#                 self.items = self.items[-opt.num_subsample:]
-#         else:
-#             if training:            
-#                 self.items = self.items * (500000 * 256 // len(self.items)) # enlarge dataset  
-        
-#         self.do_dataset_normalize = opt.do_dataset_normalize
-#         if self.do_dataset_normalize:
-#             if opt.num_subsample > 0:
-#                 std = mesh.vertices.std()
-#                 self.std = std
-#             else:
-#                 self.std = np.load(os.path.join(self.obj_path, f'{opt.category}_mean_std.npz'), allow_pickle=True)['std']
-#         print(f'[INFO] Number of items after filtering: {len(self.items)}')
-        
-#         self.mesh_shuffle = opt.mesh_shuffle > 0 # default: True
-#         if self.mesh_shuffle:
-#             print(f'[INFO] Mesh shuffle enabled: {self.mesh_shuffle}')
-#         else:
-#             print(f'[WARNING] Mesh shuffle disabled: {self.mesh_shuffle}')
-#         print(f'[INFO] Model Version: {opt.version}')
-            
-#     def __len__(self):
-#         return len(self.items)
-    
-#     def sample_noise(self, triangle_soup):
-#         if len(triangle_soup.shape) == 2:
-#             triangle_soup = triangle_soup.reshape(-1, 3, 3)        
-#         if not self.opt.use_custom_prior:
-#             noise = np.random.randn(*triangle_soup.shape)
-#         else:
-#             noise = generate_custom_prior(triangle_soup.shape[0])
-
-#         if self.noise_sort == 'random':
-#             return triangle_soup, noise
-#         elif self.noise_sort == 'sort':
-#             return sort_triangle_soup(triangle_soup), sort_triangle_soup(noise)
-#         elif self.noise_sort == 'ot':
-#             noise = optimal_sum_numpy(triangle_soup, noise, optimal=True)
-#             return triangle_soup, noise
-#         elif self.noise_sort == 'naive':
-#             noise = optimal_sum_numpy(triangle_soup, noise, optimal=False)
-#             return triangle_soup, noise
-#         else:
-#             raise ValueError(f"Invalid noise sort: {self.noise_sort}")
-
-#     def detokenize_mesh(self, tokens, discrete_bins=None, tokenizer=None):
-#         # tokens: [M, 9]
-#         if tokenizer is None:
-#             coords = tokens.reshape(-1, 3) # [N, 3]
-#             if self.do_dataset_normalize:
-#                 coords = coords * self.std
-#             # renormalize to [-1, 1]
-#             if discrete_bins is not None:
-#                 coords = coords.clip(-1, 1)
-#                 coords = (coords + 1) / 2 # [-1, 1] -> [0, 1]
-#                 try:
-#                     vertices = np.round(coords * discrete_bins) / discrete_bins
-#                 except:
-#                     vertices = np.round(coords * discrete_bins).astype(np.int32) / discrete_bins
-#                 vertices = vertices * 2 - 1
-#             else:
-#                 # coords = (coords + 1) / 2 # [-1, 1] -> [0, 1]
-#                 vertices = coords
-#             faces = np.arange(len(vertices)).reshape(-1, 3)
-#             vertices = vertices[:, [2, 1, 0]] # zyx to xyz
-
-#         return vertices, faces
-
-#     def __getitem__(self, idx):
-#         results = {}
-
-#         while True:
-#             try:
-#                 ### scale augmentation (not for image condition)
-#                 if self.opt.use_scale_aug and self.training:
-#                     bound = np.random.uniform(0.75, 0.95)
-#                 else:
-#                     bound = 0.5
-             
-#                 ### rotation augmentation
-#                 if self.training and self.opt.use_rot_aug:
-#                     # point/uncond
-#                     azimuth = np.random.choice(list(range(0, 360, 90)), 1)[0]
-#                 else:
-#                     azimuth = 0
-
-#                 ### load mesh
-#                 v, f = np.array(self.items[idx]['vertices']), np.array(self.items[idx]['faces'])
-#                 # already cleaned
-
-#                 # decimate mesh augmentation
-#                 if self.opt.use_decimate_aug and self.training:
-#                     if f.shape[0] >= 200 and random.random() < 0.5:
-#                         # at most decimate to 25% of original faces.
-#                         target = np.random.randint(max(100, f.shape[0] // 4), f.shape[0])
-#                         v, f = decimate_mesh(v, f, target=target, verbose=False, backend='pyfqmr')
-                        
-#                 # rotate augmentation
-#                 if azimuth != 0:
-#                     roty = np.stack([
-#                         [np.cos(np.radians(-azimuth)), 0, np.sin(np.radians(-azimuth))],
-#                         [0, 1, 0],
-#                         [-np.sin(np.radians(-azimuth)), 0, np.cos(np.radians(-azimuth))],
-#                     ])
-#                     v = v @ roty.T
-
-#                 # normalize after rotation in case of oob (augment scale)
-#                 v = normalize_mesh(v, bound=bound)
-#                 # v, f = clean_mesh(v, f, min_f=0, min_d=0, remesh=False, verbose=False)
-
-#                 # point cloud cond
-#                 if self.opt.cond_mode == 'cls':
-#                     cond = np.array(self.cat) # [N]
-#                 coords = tokenize_mesh(
-#                     v, f, discrete_bins=self.opt.discrete_bins, 
-#                     shuffle=self.mesh_shuffle, 
-#                     shuffle_vertex=self.mesh_shuffle,
-#                     )
-#                 break
-
-#             except Exception as e:
-#                 print(f'[ERROR] Exception occurred: {e}')
-#                 assert False
-        
-#         if self.opt.scale_factor > 0:
-#             coords = coords * self.opt.scale_factor
-#         if self.do_dataset_normalize:
-#             coords = coords/ self.std # [N, 3, 3]
-#         # Finally sampling noise
-#         coords, noise = self.sample_noise(coords) # [N, 3, 3], [N, 3, 3]
-#         results['cond'] = cond # [N] for class
-#         results['coords'] = coords.reshape(-1, 9) # [M] normalized to [-1, 1]
-#         results['noise'] = noise.reshape(-1, 9) # [M] normalized to [-1, 1]
-#         results['len'] = coords.shape[0] # [1]
-#         results['num_faces'] = f.shape[0] # [1]
-#         results['azimuth'] = azimuth # [1]
-#         results['vertices'] = v
-#         results['faces'] = f
-
-#         # a custom collate_fn is needed for padding and masking
-#         return results
-
 def collate_fn(batch, max_seq_length=800):
 
     # conds
-    conds = [item['cond'] for item in batch]
     num_faces = [item['num_faces'] for item in batch]
 
     # get max len of this batch
@@ -589,11 +391,12 @@ def collate_fn(batch, max_seq_length=800):
                 np.full((pad_len, input_c), 0), # padding
             ], axis=0)) # [M, 9]
             
-            noises.append(np.concatenate([
-                item['noise'], # mesh tokens
-                np.full((pad_len, input_c), 0), # padding
-            ], axis=0)) # [M, 9]
-
+            if "noise" in item.keys():
+                noises.append(np.concatenate([
+                    item['noise'], # mesh tokens
+                    np.full((pad_len, input_c), 0), # padding
+                ], axis=0)) # [M, 9]
+                
             masks.append(np.concatenate([
                 np.ones(item['len']), 
                 np.zeros(pad_len)
@@ -607,17 +410,11 @@ def collate_fn(batch, max_seq_length=800):
             masks.append(np.ones(max_len))
 
     results = {}
-    # if opt.cond_mode == 'cls':
-    if False:
-        results['conds'] = torch.from_numpy(np.stack(conds, axis=0)).long()
-    else:
-        results['conds'] = torch.from_numpy(np.stack(conds, axis=0)).float()
     results['num_faces'] = torch.from_numpy(np.stack(num_faces, axis=0)).long()
     results['tokens'] = torch.from_numpy(np.stack(tokens, axis=0)).float() # [B, M]
-    results['noise'] = torch.from_numpy(np.stack(noises, axis=0)).float() # [B, M]
+    if len(noises) > 0:
+        results['noise'] = torch.from_numpy(np.stack(noises, axis=0)).float() # [B, M]
     results['masks'] = torch.from_numpy(np.stack(masks, axis=0)).bool()
-    # results['vertices'] = [item['vertices'] for item in batch]
-    # results['faces'] = [item['faces'] for item in batch]
     return results
 
 if __name__ == "__main__":

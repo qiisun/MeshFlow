@@ -57,7 +57,7 @@ train:
   ckpt: null
   log_every: 100
   ckpt_every: 10000 # 100 for debug
-  kl_weight: 1e-7 # <---- kl weight, you may tune it for better reconstruction quality
+  kl_weight: 0.0000001 # <---- kl weight, you may tune it for better reconstruction quality
   
 optimizer:
   lr: 0.0002

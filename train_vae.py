@@ -32,7 +32,25 @@ from datasets.mesh_dataset import ObjaverseDataset, collate_fn
 from datasets.mesh_dataset import save_mesh
 from tqdm import tqdm
 from functools import partial
+import warnings
 
+warnings.filterwarnings("ignore", message=".*torch.cpu.amp.autocast.*")
+
+from torch.optim.lr_scheduler import LambdaLR
+
+def get_cosine_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, min_lr=1e-6):
+    base_lr = optimizer.param_groups[0]['lr']
+    
+    def lr_lambda(current_step):
+        if current_step < num_warmup_steps:
+            return float(current_step) / float(max(1, num_warmup_steps))
+        
+        progress = float(current_step - num_warmup_steps) / float(max(1, num_training_steps - num_warmup_steps))
+        cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
+        
+        return max(0.0, cosine_decay)
+
+    return LambdaLR(optimizer, lr_lambda)
 
 def do_train(train_config, accelerator):
     """
@@ -87,6 +105,8 @@ def do_train(train_config, accelerator):
         logger.info(f"LightningDiT Parameters: {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M")
         logger.info(f"Optimizer: AdamW, lr={train_config['optimizer']['lr']}, beta2={train_config['optimizer']['beta2']}")
     opt = torch.optim.AdamW(model.parameters(), lr=train_config['optimizer']['lr'], weight_decay=0, betas=(0.9, train_config['optimizer']['beta2']))
+    
+    scheduler = get_cosine_schedule_with_warmup(opt, 500, train_config['train']['max_steps'])
     
     # Setup data
     dataset = ObjaverseDataset(
@@ -193,6 +213,7 @@ def do_train(train_config, accelerator):
                 if accelerator.sync_gradients:
                     accelerator.clip_grad_norm_(model.parameters(), train_config['optimizer']['max_grad_norm'])
             opt.step()
+            scheduler.step()
             update_ema(ema, model.module)
 
             # Log loss values:

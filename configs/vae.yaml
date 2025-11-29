@@ -5,7 +5,7 @@ ckpt_path: 'path/to/your/checkpoint.pt' # <---- download our pre-trained lightni
 
 data:
   valid_path: 'debug/valid'
-  data_path: './downloaded_data/objaverse'
+  data_path: './downloaded_data/shapenet-new'
   fid_reference_file: 'path/to/your/VIRTUAL_imagenet256_labeled.npz' # <---- path to your fid_reference_file.npz. download it from ADM
 
   # recommend to use default settings
@@ -50,13 +50,13 @@ model:
 # recommend to use default settings
 train:
   max_steps: 400000
-  global_batch_size: 256 #96
+  global_batch_size: 384 #96
   global_seed: 0
   output_dir: 'output'
   exp_name: 'vae' # <---- experiment name, set as you like
   ckpt: null
   log_every: 100
-  ckpt_every: 10000 # 100 for debug
+  ckpt_every: 2000 # 100 for debug
   kl_weight: 0.0000001 # <---- kl weight, you may tune it for better reconstruction quality
   
 optimizer:

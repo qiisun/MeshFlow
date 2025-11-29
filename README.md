@@ -9,8 +9,21 @@ MeshFlow based on lightingDiT.
 - [x] implement jit
 - [x] DDP for single-node multi-card training  (test error in evaluation, fixed)
 - [ ] dynamic allocator
-- [ ] prepare shapenet dataset (lamp)
+- [x] prepare shapenet dataset (full)
+- [x] prepare objaverse dataset
 
+### dataset
+
+```bash
+mkdir downloaded_data & cd downloaded_data
+wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/shapenet.tar.gz # or objaverse
+tar xf shapenet.tar.gz
+rm shapenet.tar.gz
+cd ..
+```
+Then you should modify the `configs/vae.yaml`.
+
+### Quick start
 ```bash
 bash tools/run_train.sh configs/base.yaml
 

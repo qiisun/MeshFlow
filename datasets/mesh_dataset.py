@@ -278,30 +278,6 @@ class ObjaverseDataset(Dataset):
             triangle_soup = np.round(triangle_soup * discrete_bins) / discrete_bins
         return triangle_soup # [N, 3, 3]
     
-    def detokenize_mesh(self, tokens, discrete_bins=None, tokenizer=None):
-        # tokens: [M, 9]
-        if tokenizer is None:
-            coords = tokens.reshape(-1, 3) # [N, 3]
-            if self.do_dataset_normalize:
-                coords = coords * self.std
-            # renormalize to [-1, 1]
-            if discrete_bins is not None:
-                coords = coords.clip(-1, 1)
-                coords = (coords + 1) / 2 # [-1, 1] -> [0, 1]
-                try:
-                    vertices = np.round(coords * discrete_bins) / discrete_bins
-                except:
-                    vertices = np.round(coords * discrete_bins).astype(np.int32) / discrete_bins
-                vertices = vertices * 2 - 1
-            else:
-                coords = (coords + 1) / 2 # [-1, 1] -> [0, 1]
-                vertices = coords
-            faces = np.arange(len(vertices)).reshape(-1, 3)
-            vertices = vertices[:, [2, 1, 0]] # zyx to xyz
-
-        return vertices, faces
-
-
     def __getitem__(self, idx):
         try:
             data = self.data[idx]
@@ -414,22 +390,6 @@ if __name__ == "__main__":
     # import tyro
     # from core.options import AllConfigs
     from functools import partial
-    
-    # opt = tyro.cli(AllConfigs)
-    # kiui.seed_everything(opt.seed)
-    # opt.max_face_length = 800
-    # opt.max_seq_length = 800
-    # opt.testset_size = 400 # 1/10 data as testset
-    # # opt.use_decimate_aug = True
-    # # opt.data_pth = '../../01_mesh_data'
-    # opt.data_pth = 'downloaded_data'
-    # opt.use_rot_aug = True
-    # opt.use_scale_aug = True
-    # opt.face_pi = True
-    # opt.vertex_pi = True
-    # opt.category = 'bench'
-    # opt.use_decimated_dataset = True
-
     # tokenizer
 
     dataset = ObjaverseDataset(data_pth='../downloaded_data', training=True)

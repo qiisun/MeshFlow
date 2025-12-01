@@ -262,11 +262,12 @@ def do_train(train_config, accelerator):
                             mask = data['masks'].to(device)
                             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                                 with torch.no_grad():
-                                    recon, posterior, z  = ema(x1, cond=y, mask=mask)
+                                    recon, posterior, z  = ema(x1, cond=y, mask=mask, sample_posterior=False)
                                     val_loss, _, _ = loss_vae(x1, recon, posterior, mask=mask, kl_weight=train_config['train']['kl_weight'])
                                     val_loss = val_loss.item()
                                     os.makedirs(f'{experiment_dir}/mesh_{train_steps}', exist_ok=True)
-                                    save_mesh(recon[0].to(torch.float32).cpu().numpy(), f'{experiment_dir}/mesh_{train_steps}/{i:03d}.obj')
+                                    if i < 5:
+                                        save_mesh(recon[0].to(torch.float32).cpu().numpy(), f'{experiment_dir}/mesh_{train_steps}/{i:03d}.obj')
 
                     if accelerator.is_main_process:
                         logger.info(f"Validation Loss: {val_loss:.4f}")

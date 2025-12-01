@@ -1,0 +1,122 @@
+import torch
+import os
+import argparse
+import yaml
+from tqdm import tqdm
+from functools import partial
+from accelerate import Accelerator
+
+from models.equivae import loss_vae, AutoencoderKL
+from datasets.mesh_dataset import ObjaverseDataset, collate_fn, save_mesh
+
+def load_config(config_path):
+    with open(config_path, "r") as file:
+        return yaml.safe_load(file)
+
+def evaluate(args):
+    accelerator = Accelerator(mixed_precision='bf16')
+    device = accelerator.device
+    config = load_config(args.config)
+    
+    os.makedirs(args.output_dir, exist_ok=True)
+
+    # Init Model
+    model = AutoencoderKL(latent_channels=4).to(device)
+    model.eval()
+
+    # Load Checkpoint
+    print(f"Loading checkpoint: {args.checkpoint}")
+    ckpt = torch.load(args.checkpoint, map_location='cpu')
+    
+    if False: #'ema' in ckpt:
+        print("Loading EMA weights...")
+        model.load_state_dict(ckpt['ema'])
+    else:
+        print("Loading standard weights...")
+        state_dict = ckpt['model']
+        new_state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
+        model.load_state_dict(new_state_dict)
+
+    # Setup Dataset
+    dataset = ObjaverseDataset(
+        data_pth=config['data']['data_path'],
+        training=True, 
+        noise_sort=False,
+        use_custom_prior=config['data'].get('use_custom_prior', False),
+        use_decimated_dataset=config['data'].get('use_decimated_dataset', False),
+        do_dataset_normalize=config['data'].get('do_dataset_normalize', False),
+        vae=True,
+        overfit=False,
+    )
+
+    dataloader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=4,
+        pin_memory=True,
+        collate_fn=partial(collate_fn, max_seq_length=800)
+    )
+
+    total_loss = 0.0
+    total_rec = 0.0
+    total_kl = 0.0
+    num_batches = 0
+    saved_count = 0
+
+    print(f"Start Evaluation on {len(dataset)} samples...")
+    
+    with torch.no_grad():
+        for i, data in enumerate(tqdm(dataloader)):
+            if i>100:
+                break
+            x = data['tokens'].to(device)
+            y = data['num_faces'].to(device)
+            mask = data['masks'].to(device)
+
+            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                # Deterministic inference (Mode)
+                recon, posterior, z = model(x, cond=y, mask=mask, sample_posterior=False)
+                
+                loss, rec_l, kl_l = loss_vae(
+                    x, recon, posterior, mask=mask, 
+                    kl_weight=config['train']['kl_weight']
+                )
+
+            total_loss += loss.item()
+            total_rec += rec_l.item()
+            total_kl += kl_l.item()
+            num_batches += 1
+
+            # Save Meshes
+            if saved_count < args.num_save:
+                bs = x.shape[0]
+                for b in range(bs):
+                    if saved_count >= args.num_save: break
+                    
+                    mesh_np = recon[b].float().cpu().numpy()
+                    save_path = os.path.join(args.output_dir, f"eval_{saved_count:04d}.obj")
+                    save_mesh(mesh_np, save_path)
+                    saved_count += 1
+
+    avg_loss = total_loss / num_batches
+    avg_rec = total_rec / num_batches
+    avg_kl = total_kl / num_batches
+
+    print("-" * 30)
+    print(f"Avg Loss    : {avg_loss:.6f}")
+    print(f"Avg Rec Loss: {avg_rec:.6f}")
+    print(f"Avg KL Loss : {avg_kl:.6f}")
+    print(f"Saved {saved_count} meshes to {args.output_dir}")
+    print("-" * 30)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', type=str, required=True)
+    parser.add_argument('--checkpoint', type=str, required=True)
+    parser.add_argument('--output_dir', type=str, default='eval_results')
+    parser.add_argument('--num_save', type=int, default=20)
+    parser.add_argument('--batch_size', type=int, default=8)
+    args = parser.parse_args()
+    
+    evaluate(args)

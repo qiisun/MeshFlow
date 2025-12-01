@@ -6,7 +6,7 @@ from tqdm import tqdm
 from functools import partial
 from accelerate import Accelerator
 
-from models.equivae import loss_vae, AutoencoderKL
+from models.equivae import loss_vae, AutoencoderKL, float_to_index, index_to_float
 from datasets.mesh_dataset import ObjaverseDataset, collate_fn, save_mesh
 
 def load_config(config_path):
@@ -21,7 +21,12 @@ def evaluate(args):
     os.makedirs(args.output_dir, exist_ok=True)
 
     # Init Model
-    model = AutoencoderKL(latent_channels=4).to(device)
+    model = AutoencoderKL(latent_channels=config['model']['latent_channels'],
+                          decoder_type=config['model']['decoder_type'],
+                          num_bins=config['data']['num_bins']).to(device)
+    
+    decoder_type = config['model']['decoder_type']
+    num_bins = config['data']['num_bins']
     model.eval()
 
     # Load Checkpoint
@@ -80,7 +85,9 @@ def evaluate(args):
                 
                 loss, rec_l, kl_l = loss_vae(
                     x, recon, posterior, mask=mask, 
-                    kl_weight=config['train']['kl_weight']
+                    kl_weight=config['train']['kl_weight'],
+                    decoder_type=decoder_type, # 传入类型
+                    num_bins=num_bins          # 传入 bins
                 )
 
             total_loss += loss.item()
@@ -91,10 +98,22 @@ def evaluate(args):
             # Save Meshes
             if saved_count < args.num_save:
                 bs = x.shape[0]
+                
+                if decoder_type == "cls":
+                    # recon shape: [B, N, 9, num_bins] -> argmax -> [B, N, 9] (Indices)
+                    recon_indices = torch.argmax(recon, dim=-1)
+                    recon_coords = index_to_float(
+                        recon_indices, 
+                        min_val=-0.5,
+                        max_val=0.5,
+                        num_bins=num_bins
+                    )
+                else:
+                    recon_coords = recon
                 for b in range(bs):
                     if saved_count >= args.num_save: break
                     
-                    mesh_np = recon[b].float().cpu().numpy()
+                    mesh_np = recon_coords[b].float().cpu().numpy()
                     save_path = os.path.join(args.output_dir, f"eval_{saved_count:04d}.obj")
                     save_mesh(mesh_np, save_path)
                     saved_count += 1

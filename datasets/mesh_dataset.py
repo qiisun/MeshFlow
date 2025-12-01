@@ -111,38 +111,6 @@ def rotate_mesh_with_normal(vertices):
     return rotated_vertices #, rotated_pc, rotated_normal
 
 
-def tokenize_mesh(vertices, faces, discrete_bins=None, shuffle=False, shuffle_vertex=False, scale_aug=False):
-    # vertices: [N, 3]
-    # faces: [M, 3]
-    if True:
-        vertices = vertices[:, [2, 1, 0]] # 转置xyz -> zyx
-        if discrete_bins != None:
-            vertices = vertices / 2 + 0.5
-            vertices = np.round(vertices * discrete_bins) / discrete_bins * 2 - 1
-        
-        # clean mesh before triangle soup
-        # vertices, faces = clean_mesh(vertices, faces, min_f=0, min_d=0, remesh=False, verbose=False)
-        
-        triangle_soup = vertices[faces] # [N, 3, 3]
-        if shuffle:
-            np.random.shuffle(triangle_soup) # random shuffle the faces
-            
-        if shuffle_vertex:
-            N = triangle_soup.shape[0]
-            all_perm = np.array([[0,1,2], [1,2,0], [2,0,1]])
-            perm = np.random.randint(0,3, size=(triangle_soup.shape[0],))
-            triangle_soup = triangle_soup[np.arange(N)[:, None], all_perm[perm]]
-            
-            # triangle_soup = triangle_soup[:, np.random.permutation(3)] # FIXME, only 6 perm for all faces
-        if scale_aug:
-            triangle_soup = triangle_soup * np.random.uniform(0.5, 2.0, size=(1, 1, 3,)) # [3, N, 3, 3]
-        
-        # prequantization
-        if discrete_bins != None:
-            triangle_soup = triangle_soup / 2 + 0.5
-            triangle_soup = np.round(triangle_soup * discrete_bins) / discrete_bins * 2 - 1
-        return triangle_soup # [N, 3, 3]
-
 class ObjaverseDataset(Dataset):
     def __init__(self, data_pth, 
                  noise_sort='ot',

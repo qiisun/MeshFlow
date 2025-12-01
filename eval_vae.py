@@ -45,7 +45,7 @@ def evaluate(args):
     # Setup Dataset
     dataset = ObjaverseDataset(
         data_pth=config['data']['data_path'],
-        training=True, 
+        training=False, 
         noise_sort=False,
         use_custom_prior=config['data'].get('use_custom_prior', False),
         use_decimated_dataset=config['data'].get('use_decimated_dataset', False),

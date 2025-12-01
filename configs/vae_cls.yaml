@@ -5,7 +5,7 @@ ckpt_path: 'path/to/your/checkpoint.pt' # <---- download our pre-trained lightni
 
 data:
   valid_path: 'debug/valid'
-  data_path: './downloaded_data/shapenet-new'
+  data_path: './downloaded_data/objaverse'
   fid_reference_file: 'path/to/your/VIRTUAL_imagenet256_labeled.npz' # <---- path to your fid_reference_file.npz. download it from ADM
 
   # recommend to use default settings

@@ -76,7 +76,9 @@ def do_train(train_config, accelerator):
     rank = accelerator.local_process_index
 
     # Create model:
-    model = AutoencoderKL(latent_channels=4)
+    model = AutoencoderKL(latent_channels=train_config['model']['latent_channels'], 
+                          decoder_type=train_config['model']['decoder_type'],
+                          num_bins=train_config['data']['num_bins'])
     ema = deepcopy(model).to(device)  # Create an EMA of the model for use after training
 
     # load pretrained model
@@ -195,7 +197,7 @@ def do_train(train_config, accelerator):
                 x1 = x1.to(device)
                 y = y.to(device)
             recon, posterior, z = model(x1, cond=y, mask=mask)        
-            loss, rec_l, kl_l = loss_vae(x1, recon, posterior, mask=mask, kl_weight=train_config['train']['kl_weight'])
+            loss, rec_l, kl_l = loss_vae(x1, recon, posterior, mask=mask, kl_weight=train_config['train']['kl_weight'], num_bins=train_config['data']['num_bins'], decoder_type=train_config['model']['decoder_type'])
             # loss = loss_dict["loss"].mean()
             opt.zero_grad()
             accelerator.backward(loss)
@@ -260,7 +262,7 @@ def do_train(train_config, accelerator):
                             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                                 with torch.no_grad():
                                     recon, posterior, z  = ema(x1, cond=y, mask=mask, sample_posterior=False)
-                                    val_loss, rec_loss, _ = loss_vae(x1, recon, posterior, mask=mask, kl_weight=train_config['train']['kl_weight'], num_bins=train_config['data']['num_bins'])
+                                    val_loss, rec_loss, _ = loss_vae(x1, recon, posterior, mask=mask, kl_weight=train_config['train']['kl_weight'], num_bins=train_config['data']['num_bins'], decoder_type=train_config['model']['decoder_type'])
                                     total_val_loss += val_loss.item()
                                     total_rec_loss += rec_loss.item()
                                     num_batches += 1

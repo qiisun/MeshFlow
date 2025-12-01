@@ -22,19 +22,20 @@ def index_to_float(index, min_val=-0.5, max_val=0.5, num_bins=512):
 
 class AutoencoderKL(nn.Module):
     def __init__(self, 
-                 in_channels=9, 
-                 out_channels=9, 
                  hidden_dim=768,
-                 latent_channels=4):
+                 latent_channels=3,
+                 decoder_type="reg",
+                 num_bins=256):
         super().__init__()
         
         self.latent_channels = latent_channels
+        self.num_bins = num_bins
         self.quant_linear = nn.Linear(hidden_dim, 2 * latent_channels) # 9 -> 4*2
 
         self.post_quant_linear = nn.Linear(latent_channels, hidden_dim)   
         
-        self.encoder = Model(hidden_dim=hidden_dim, model_type='encoder')   
-        self.decoder = Model(hidden_dim=hidden_dim, model_type='decoder')     
+        self.encoder = Model(hidden_dim=hidden_dim, model_type='encoder', num_bins=num_bins)   
+        self.decoder = Model(hidden_dim=hidden_dim, model_type='decoder', decoder_type=decoder_type, num_bins=num_bins)     
         
     def encode(self, x, cond, mask):
         """
@@ -131,6 +132,7 @@ class Model(nn.Module):
                  num_bins=512):
         super().__init__()
         self.model_type = model_type
+        self.decoder_type = decoder_type
         
         self.kl_weight = 1e-6
         self.use_l1_loss = True
@@ -245,11 +247,10 @@ class Model(nn.Module):
             return x # [b, N*3, C]
         elif self.model_type == 'decoder':
             x = self.final_layer(x, c) # v2: [B, N*3, 3]
-            
             if self.decoder_type == "cls":
                 x = x.view(B, N, 9, self.num_bins) # [B, N, 9, num_bins]
             elif self.decoder_type == "reg":
-                x = x.view(B, N, 9)
+                x = x.view(B, N, 9) # [B, N, 9, num_bins]
             return x
 
 def _masked_mean(x, mask):
@@ -265,9 +266,9 @@ def _masked_mean(x, mask):
 def loss_vae(inputs, recon, posterior, mask=None, kl_weight=1e-6, decoder_type="reg", num_bins=256):
     # 1. 计算原始 diff
     if decoder_type == "cls":
-        target_idx = float_to_index(recon, num_bins=num_bins).to(recon.device)
+        target_idx = float_to_index(inputs, num_bins=num_bins).to(inputs.device) # [B, N, 9] long type
         rec_diff = F.cross_entropy(
-            inputs.permute(0, 3, 1, 2), 
+            recon.permute(0, 3, 1, 2),  # [B, N, 9, C] -> [B, C, N, 9]
             target_idx, 
             reduction='none'
             )   

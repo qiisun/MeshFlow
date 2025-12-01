@@ -5,7 +5,7 @@ ckpt_path: 'path/to/your/checkpoint.pt' # <---- download our pre-trained lightni
 
 data:
   valid_path: 'debug/valid'
-  data_path: './downloaded_data/shapenet-new'
+  data_path: './downloaded_data/objaverse'
   fid_reference_file: 'path/to/your/VIRTUAL_imagenet256_labeled.npz' # <---- path to your fid_reference_file.npz. download it from ADM
 
   # recommend to use default settings
@@ -17,11 +17,7 @@ data:
 
   do_dataset_normalize: True
   noise_sort: 'ot'
-
-# recommend to use default settings (we wil release codes with SD-VAE later)
-# vae:
-#   model_name: 'vavae_f16d32'
-#   downsample_ratio: 16
+  num_bins: 256  # <---- number of bins for classification decoder, set to 256
 
 # recommend to use default settings
 model:
@@ -31,7 +27,7 @@ model:
   use_rope: true
   use_rmsnorm: true
   wo_shift: false
-  # in_chans: 32
+  latent_channels: 3
 
   hidden_dim: 768
   num_heads: 12
@@ -47,19 +43,18 @@ model:
   face_cond: True
   face_bin: 10
   decoder_type: "cls"
-  quantize_bins: 256
 
 
 # recommend to use default settings
 train:
   max_steps: 400000
-  global_batch_size: 384 #96
+  global_batch_size: 256 #64 per gpu
   global_seed: 0
   output_dir: 'output'
-  exp_name: 'vae' # <---- experiment name, set as you like
+  exp_name: 'vae_cls' # <---- experiment name, set as you like
   ckpt: null
   log_every: 100
-  ckpt_every: 2000 # 100 for debug
+  ckpt_every: 5000 # 100 for debug
   kl_weight: 0.0000001 # <---- kl weight, you may tune it for better reconstruction quality
   
 optimizer:

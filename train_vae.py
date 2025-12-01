@@ -179,6 +179,7 @@ def do_train(train_config, accelerator):
         train_steps = 0
     log_steps = 0
     running_loss = 0
+    running_kl_loss = 0
     start_time = time()
     use_checkpoint = train_config['train']['use_checkpoint'] if 'use_checkpoint' in train_config['train'] else True
     if accelerator.is_main_process:
@@ -210,6 +211,7 @@ def do_train(train_config, accelerator):
 
             # Log loss values:
             running_loss += loss.item()
+            running_kl_loss += kl_l.item()
             log_steps += 1
             train_steps += 1
             if train_steps % train_config['train']['log_every'] == 0:
@@ -219,10 +221,14 @@ def do_train(train_config, accelerator):
                 steps_per_sec = log_steps / (end_time - start_time)
                 # Reduce loss history over all processes:
                 avg_loss = torch.tensor(running_loss / log_steps, device=device)
+                avg_kl   = torch.tensor(running_kl_loss / log_steps, device=device) # <--- 新增
+                dist.all_reduce(avg_kl, op=dist.ReduceOp.SUM)
                 dist.all_reduce(avg_loss, op=dist.ReduceOp.SUM)
                 avg_loss = avg_loss.item() / dist.get_world_size()
+                avg_kl   = avg_kl.item() / dist.get_world_size()
                 if accelerator.is_main_process:
                     logger.info(f"(step={train_steps:07d}) Train Loss: {avg_loss:.4f}, Train Steps/Sec: {steps_per_sec:.2f}")
+                    writer.add_scalar('Loss/train_kl', avg_kl, train_steps)     # <--- 新增
                     writer.add_scalar('Loss/train', avg_loss, train_steps)
                 # Reset monitoring variables:
                 running_loss = 0

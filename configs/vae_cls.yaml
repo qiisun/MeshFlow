@@ -5,7 +5,7 @@ ckpt_path: 'path/to/your/checkpoint.pt' # <---- download our pre-trained lightni
 
 data:
   valid_path: 'debug/valid'
-  data_path: './downloaded_data/objaverse'
+  data_path: './downloaded_data/shapenet-new'
   fid_reference_file: 'path/to/your/VIRTUAL_imagenet256_labeled.npz' # <---- path to your fid_reference_file.npz. download it from ADM
 
   # recommend to use default settings
@@ -55,40 +55,8 @@ train:
   ckpt: null
   log_every: 100
   ckpt_every: 5000 # 100 for debug
-  kl_weight: 0.0000001 # <---- kl weight, you may tune it for better reconstruction quality
+  kl_weight: 0.0001 # <---- kl weight, 1e-4?
   
 optimizer:
   lr: 0.0002
   beta2: 0.95
-  
-# recommend to use default settings
-transport:
-  path_type: Linear
-  prediction: velocity
-  loss_weight: null
-  sample_eps: null
-  train_eps: null
-  use_cosine_loss: true
-  use_lognorm: true
-  use_jit: false
-
-# recommend to use default settings
-sample:
-  mode: ODE
-  sampling_method: euler
-  atol: 0.000001
-  rtol: 0.001
-  reverse: false
-  likelihood: false
-  num_sampling_steps: 50
-  cfg_scale: 10.0 # <---- cfg scale, for 800 epoch performance with FID=1.35 cfg_scale=6.7
-                  #       for 64 epoch performance with FID=2.11 cfg_scale=10.0
-                  #       you may find we use a large cfg_scale, this is because of 2 reasons:
-                  #       we find a high-dimensional latent space requires a large cfg_scale to get good performance than f8d4 SD-VAE
-                  #       we enable cfg interval, which reduces the negative effects of large cfg on high-noise parts. This means larger cfg can be utilized
-  
-  # recommend to use default settings
-  per_proc_batch_size: 4
-  fid_num: 50000
-  cfg_interval_start: 0.11
-  timestep_shift: 0.3

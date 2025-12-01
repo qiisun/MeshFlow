@@ -47,7 +47,7 @@ model:
   face_cond: True
   face_bin: 10
   decoder_type: "cls"
-  quantize_bins: 512
+  quantize_bins: 256
 
 
 # recommend to use default settings

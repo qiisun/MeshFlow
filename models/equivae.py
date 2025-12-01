@@ -14,6 +14,12 @@ def float_to_index(value, min_val=-0.5, max_val=0.5, num_bins=512):
     norm = torch.clamp(norm, 0, 1)
     return (norm * (num_bins - 1)).long()
 
+
+def index_to_float(index, min_val=-0.5, max_val=0.5, num_bins=512):
+    norm = index.float() / (num_bins - 1)
+    value = norm * (max_val - min_val) + min_val
+    return value
+
 class AutoencoderKL(nn.Module):
     def __init__(self, 
                  in_channels=9, 
@@ -256,10 +262,10 @@ def _masked_mean(x, mask):
          mask = mask.repeat_interleave(scale, dim=1)
     return (x * mask).sum() / (mask.expand_as(x).sum() + 1e-8)
 
-def loss_vae(inputs, recon, posterior, mask=None, kl_weight=1e-6, decoder_type="reg"):
+def loss_vae(inputs, recon, posterior, mask=None, kl_weight=1e-6, decoder_type="reg", num_bins=256):
     # 1. 计算原始 diff
     if decoder_type == "cls":
-        target_idx = float_to_index(recon, num_bins=512).to(recon.device)
+        target_idx = float_to_index(recon, num_bins=num_bins).to(recon.device)
         rec_diff = F.cross_entropy(
             inputs.permute(0, 3, 1, 2), 
             target_idx, 

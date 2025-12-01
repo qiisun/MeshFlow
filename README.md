@@ -32,13 +32,14 @@ bash tools/run_train.sh configs/base_jit.yaml
 
 
 # train auto-encoder
-bash tools/run_trainvae.sh configs/vae.yaml
+bash tools/run_trainvae.sh configs/vae.yaml # regression loss
+bash tools/run_trainvae.sh configs/vae_cls.yaml # classification loss
 
 
 #eval auto-encoder
 python eval_vae.py \
   --config configs/vae.yaml \
-  --checkpoint output/vae/checkpoints/0004000.pt \
+  --checkpoint output/vae/checkpoints/0100000.pt \
   --output_dir output/vae/eval_samples \
   --num_save 20
 ```

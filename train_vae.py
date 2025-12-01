@@ -1,12 +1,3 @@
-"""
-Training Codes of LightningDiT together with VA-VAE.
-It envolves advanced training methods, sampling methods, 
-architecture design methods, computation methods. We achieve
-state-of-the-art FID 1.35 on ImageNet 256x256.
-
-by Maple (Jingfeng Yao) from HUST-VL
-"""
-
 import torch
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -24,19 +15,18 @@ from time import time
 from glob import glob
 from copy import deepcopy
 from collections import OrderedDict
-
-from models.equivae import loss_vae, AutoencoderKL
+from torch.optim.lr_scheduler import LambdaLR
 from accelerate import Accelerator
-
-from datasets.mesh_dataset import ObjaverseDataset, collate_fn
-from datasets.mesh_dataset import save_mesh
 from tqdm import tqdm
 from functools import partial
 import warnings
 
 warnings.filterwarnings("ignore", message=".*torch.cpu.amp.autocast.*")
 
-from torch.optim.lr_scheduler import LambdaLR
+from models.equivae import loss_vae, AutoencoderKL, index_to_float
+from datasets.mesh_dataset import ObjaverseDataset, collate_fn
+from datasets.mesh_dataset import save_mesh
+
 
 def get_cosine_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, min_lr=1e-6):
     base_lr = optimizer.param_groups[0]['lr']
@@ -148,7 +138,7 @@ def do_train(train_config, accelerator):
 
         valid_loader = DataLoader(
             valid_dataset,
-            batch_size=1, # batch_size_per_gpu,
+            batch_size=1,
             shuffle=False,
             num_workers=train_config['data']['num_workers'],
             pin_memory=True,
@@ -256,6 +246,13 @@ def do_train(train_config, accelerator):
                 if 'valid_path' in train_config['data']:
                     if accelerator.is_main_process: # only validate on main process
                         logger.info(f"Start evaluating at step {train_steps}")
+                        
+                        total_val_loss = 0.0
+                        total_rec_loss = 0.0
+                        num_batches = 0
+                        
+                        save_mesh_dir = f'{experiment_dir}/mesh_{train_steps}'
+                        os.makedirs(save_mesh_dir, exist_ok=True)
                         for i, data in tqdm(enumerate(valid_loader), desc="Generating Demo Samples"):
                             x1 = data['tokens'].to(device)
                             y = data['num_faces'].to(device)
@@ -263,15 +260,30 @@ def do_train(train_config, accelerator):
                             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                                 with torch.no_grad():
                                     recon, posterior, z  = ema(x1, cond=y, mask=mask, sample_posterior=False)
-                                    val_loss, _, _ = loss_vae(x1, recon, posterior, mask=mask, kl_weight=train_config['train']['kl_weight'])
-                                    val_loss = val_loss.item()
-                                    os.makedirs(f'{experiment_dir}/mesh_{train_steps}', exist_ok=True)
+                                    val_loss, rec_loss, _ = loss_vae(x1, recon, posterior, mask=mask, kl_weight=train_config['train']['kl_weight'], num_bins=train_config['data']['num_bins'])
+                                    total_val_loss += val_loss.item()
+                                    total_rec_loss += rec_loss.item()
+                                    num_batches += 1
+                                    
                                     if i < 5:
-                                        save_mesh(recon[0].to(torch.float32).cpu().numpy(), f'{experiment_dir}/mesh_{train_steps}/{i:03d}.obj')
+                                        if train_config['model']['decoder_type'] == 'cls':
+                                            recon_indices = torch.argmax(recon, dim=-1)
+                                            recon_coords = index_to_float(
+                                                recon_indices, 
+                                                min_val=-0.5, 
+                                                max_val=0.5, 
+                                                num_bins=train_config['data']['num_bins']
+                                            )
+                                            save_mesh(recon_coords[0].to(torch.float32).cpu().numpy(), f'{save_mesh_dir}/{i:03d}.obj')
 
-                    if accelerator.is_main_process:
-                        logger.info(f"Validation Loss: {val_loss:.4f}")
-                        writer.add_scalar('Loss/validation', val_loss, train_steps)
+                                        if train_config['model']['decoder_type'] == 'reg':
+                                            save_mesh(recon[0].to(torch.float32).cpu().numpy(), f'{save_mesh_dir}/{i:03d}.obj')
+
+                        if num_batches > 0:
+                            avg_val_loss = total_val_loss / num_batches
+                            avg_rec_loss = total_rec_loss / num_batches
+                        logger.info(f"Validation Loss: {avg_val_loss:.4f}")
+                        writer.add_scalar('Loss/validation', avg_val_loss, train_steps)
                     model.train()
             if train_steps >= train_config['train']['max_steps']:
                 break

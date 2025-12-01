@@ -113,7 +113,7 @@ def evaluate(args):
                 for b in range(bs):
                     if saved_count >= args.num_save: break
                     
-                    mesh_np = recon_coords[b].float().cpu().numpy()
+                    mesh_np = recon_coords[b][mask[b]].float().cpu().numpy()
                     save_path = os.path.join(args.output_dir, f"eval_{saved_count:04d}.obj")
                     save_mesh(mesh_np, save_path)
                     saved_count += 1

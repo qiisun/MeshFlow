@@ -54,7 +54,7 @@ train:
   exp_name: 'vae_cls' # <---- experiment name, set as you like
   ckpt: null
   log_every: 100
-  ckpt_every: 5000 # 100 for debug
+  ckpt_every: 2000 # 100 for debug
   kl_weight: 0.0001 # <---- kl weight, 1e-4?
   
 optimizer:

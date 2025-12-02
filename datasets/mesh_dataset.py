@@ -105,10 +105,7 @@ def rotate_mesh_with_normal(vertices):
                     [-np.sin(angle_y), 0, np.cos(angle_y)]])
 
     rotated_vertices = np.dot(vertices, R_y.T)
-    # rotated_pc = np.dot(pc_coor, R_y.T)
-    # rotated_normal = np.dot(normal, R_y.T)
-
-    return rotated_vertices #, rotated_pc, rotated_normal
+    return rotated_vertices
 
 
 class ObjaverseDataset(Dataset):
@@ -120,7 +117,9 @@ class ObjaverseDataset(Dataset):
                  use_decimated_dataset=False,
                  max_face_length=800, 
                  vae=False,
-                 overfit=False):
+                 overfit=False,
+                 use_rot_aug=False,
+                 use_scale_aug=False):
         self.vae = vae
         self.data_pth = data_pth
         self.training = training
@@ -128,6 +127,8 @@ class ObjaverseDataset(Dataset):
         self.use_decimated_dataset = use_decimated_dataset
         self.do_dataset_normalize = do_dataset_normalize
         self.max_face_length = max_face_length
+        self.use_rot_aug = use_rot_aug  # only augment when training
+        self.use_scale_aug = use_scale_aug  # only augment when training
         
         if self.training:
             split = np.load(os.path.join(data_pth, 'split', "train.npz"), allow_pickle=True)['npz_list'].tolist()
@@ -263,21 +264,21 @@ class ObjaverseDataset(Dataset):
             vertices = vertices - (bounds[0] + bounds[1])[None, :] / 2
             vertices = vertices / (bounds[1] - bounds[0]).max()
             # aligned from now on
-            # if self.opt.use_scale_aug:
-            #     x_lims = (0.75, 1.25)
-            #     y_lims = (0.75, 1.25)
-            #     z_lims = (0.75, 1.25)
+            if self.use_scale_aug:
+                x_lims = (0.75, 1.25)
+                y_lims = (0.75, 1.25)
+                z_lims = (0.75, 1.25)
 
-            #     x = np.random.uniform(low=x_lims[0], high=x_lims[1], size=(1,))
-            #     y = np.random.uniform(low=y_lims[0], high=y_lims[1], size=(1,))
-            #     z = np.random.uniform(low=z_lims[0], high=z_lims[1], size=(1,))
-            #     vertices = np.stack([vertices[:, 0] * x, vertices[:, 1] * y, vertices[:, 2] * z], axis=-1)
+                x = np.random.uniform(low=x_lims[0], high=x_lims[1], size=(1,))
+                y = np.random.uniform(low=y_lims[0], high=y_lims[1], size=(1,))
+                z = np.random.uniform(low=z_lims[0], high=z_lims[1], size=(1,))
+                vertices = np.stack([vertices[:, 0] * x, vertices[:, 1] * y, vertices[:, 2] * z], axis=-1)
 
             # normalize x, y, z
             bounds = np.array([vertices.min(axis=0), vertices.max(axis=0)])
             vertices = vertices - (bounds[0] + bounds[1])[None, :] / 2
-            # if self.opt.use_rot_aug:
-            #     vertices = rotate_mesh_with_normal(vertices)
+            if self.use_rot_aug:
+                vertices = rotate_mesh_with_normal(vertices)
 
             # scale to -0.5 to 0.5
             bounds = np.array([vertices.min(axis=0), vertices.max(axis=0)])

@@ -5,11 +5,10 @@ ckpt_path: 'path/to/your/checkpoint.pt' # <---- download our pre-trained lightni
 
 data:
   valid_path: 'debug/valid'
-  data_path: './downloaded_data/objaverse'
+  data_path: './downloaded_data/shapenet-new'
   fid_reference_file: 'path/to/your/VIRTUAL_imagenet256_labeled.npz' # <---- path to your fid_reference_file.npz. download it from ADM
 
   # recommend to use default settings
-  image_size: 256
   num_classes: 1000
   num_workers: 8
   latent_norm: true
@@ -17,7 +16,9 @@ data:
 
   do_dataset_normalize: True
   noise_sort: 'ot'
-  num_bins: 256  # <---- number of bins for classification decoder, set to 256
+  num_bins: 512  # <---- number of bins for classification decoder, set to 256
+  use_rot_aug: True  # <---- whether to use rotation augmentation when training
+  use_scale_aug: True  # <---- whether to use scaling augmentation when training
 
 # recommend to use default settings
 model:
@@ -48,13 +49,13 @@ model:
 # recommend to use default settings
 train:
   max_steps: 400000
-  global_batch_size: 256 #64 per gpu
+  global_batch_size: 512 #64 per gpu
   global_seed: 0
   output_dir: 'output'
   exp_name: 'vae_cls' # <---- experiment name, set as you like
   ckpt: null
   log_every: 100
-  ckpt_every: 2000 # 100 for debug
+  ckpt_every: 10000 # 100 for debug
   kl_weight: 0.0001 # <---- kl weight, 1e-4?
   
 optimizer:

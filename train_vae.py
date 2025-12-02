@@ -110,6 +110,8 @@ def do_train(train_config, accelerator):
         do_dataset_normalize=train_config['data']['do_dataset_normalize'] if 'do_dataset_normalize' in train_config['data'] else False,
         vae=True,
         overfit=train_config['data']['overfit'] if 'overfit' in train_config['data'] else False,
+        use_rot_aug=train_config['data']['use_rot_aug'] if 'use_rot_aug' in train_config['data'] else True,
+        use_scale_aug=train_config['data']['use_scale_aug'] if 'use_scale_aug' in train_config['data'] else True,
     )
     batch_size_per_gpu = int(np.round(train_config['train']['global_batch_size'] / accelerator.num_processes))
     global_batch_size = batch_size_per_gpu * accelerator.num_processes
@@ -332,7 +334,7 @@ def load_weights_with_shape_check(model, checkpoint, rank=0):
     return model
 
 @torch.no_grad()
-def update_ema(ema_model, model, decay=0.9999):
+def update_ema(ema_model, model, decay=0.999):
     """
     Step the EMA model towards the current model.
     """

@@ -40,7 +40,7 @@ bash tools/run_trainvae.sh configs/vae_cls.yaml # classification loss
 CUDA_VISIBLE_DEVICES=2, \
 python eval_vae.py \
   --config configs/vae_cls.yaml \
-  --checkpoint output/vae_cls/checkpoints/0040000.pt \
+  --checkpoint output/vae_cls/checkpoints/0025000.pt \
   --output_dir output/vae_cls/eval_samples \
   --num_save 20
 ```

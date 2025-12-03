@@ -5,7 +5,7 @@ ckpt_path: 'path/to/your/checkpoint.pt' # <---- download our pre-trained lightni
 
 data:
   valid_path: 'debug/valid'
-  data_path: './downloaded_data/shapenet-new'
+  data_path: './downloaded_data/objaverse'
 
   # recommend to use default settings
   num_workers: 8
@@ -16,6 +16,11 @@ data:
   noise_sort: 'ot'
   max_length: 400
 
+  num_bins: 256  # quantize final results
+  use_rot_aug: True  # <---- whether to use rotation augmentation when training
+  use_scale_aug: True  # <---- whether to use scaling augmentation when training
+
+
 # recommend to use default settings
 model:
   model_type: "equidit"
@@ -24,6 +29,8 @@ model:
   use_rope: true
   use_rmsnorm: true
   wo_shift: false
+  latent_channels: 3
+
   # in_chans: 32
 
   hidden_dim: 768
@@ -39,6 +46,8 @@ model:
   use_dit_like_pe: False
   face_cond: True
   face_bin: 10
+  decoder_type: "reg"
+
 
 # recommend to use default settings
 train:
@@ -50,7 +59,7 @@ train:
   ckpt: null
   log_every: 100
   ckpt_every: 10000 # 100 for debug
-  kl_weight: 0.000001 # <---- kl weight, you may tune it for better reconstruction quality
+  kl_weight: 0.00001 # <---- 1e-6
   
 optimizer:
   lr: 0.0002

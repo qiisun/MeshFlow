@@ -16,8 +16,15 @@ MeshFlow based on lightingDiT.
 ### Environment
 
 ```bash
-conda env create -f env.yaml
+conda create -n mflow python=3.10 -y
 conda activate mflow
+
+pip install torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 --index-url https://download.pytorch.org/whl/cu124
+
+# flash attention
+pip install https://github.com/Dao-AILab/flash-attention/releases/download/v2.6.3/flash_attn-2.6.3+cu123torch2.4cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
+
+pip install -r requirements.txt
 ```
 
 

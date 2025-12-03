@@ -18,15 +18,9 @@ import numpy as np
 import sys
 sys.path.append('.')
 from utils.ot_utils import optimal_sum_numpy
-
-
+from models.equivae import float_to_index, index_to_float
 import torch
 from torch.utils.data import Dataset, DataLoader
-
-import kiui
-from kiui.mesh_utils import decimate_mesh
-# from core.options import Options
-# from core.utils import normalize_mesh
 import tqdm
 
 
@@ -45,11 +39,10 @@ def generate_custom_prior(num_samples, var_scale=0.05):
     return np.concatenate([vertice23, vertice1], axis=1)  # [N, 3, 3]
 
 
-def save_mesh(tokens: np.ndarray, path: str, clean: bool = True):
+def save_mesh(tokens: np.ndarray, path: str, clean: bool = True, num_bins=512):
     # [N, 3, 3] -> mesh
     def simple_detokenize_mesh(tokens: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         coords = tokens.reshape(-1, 3).astype(np.float32)
-        # coords = (coords + 1) / 2 
         vertices = coords
 
         faces = np.arange(len(vertices)).reshape(-1, 3)
@@ -58,6 +51,8 @@ def save_mesh(tokens: np.ndarray, path: str, clean: bool = True):
         return vertices, faces
 
     vertices, faces = simple_detokenize_mesh(tokens=tokens)
+    vertices = float_to_index(vertices, min_val=-0.5, max_val=0.5, num_bins=num_bins)
+    vertices = index_to_float(vertices, min_val=-0.5, max_val=0.5, num_bins=num_bins)
 
     mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
 

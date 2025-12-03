@@ -22,6 +22,8 @@ from functools import partial
 import warnings
 
 warnings.filterwarnings("ignore", message=".*torch.cpu.amp.autocast.*")
+os.environ["NCCL_P2P_DISABLE"] = "1"
+os.environ["NCCL_IB_DISABLE"] = "1"
 
 from models.equivae import loss_vae, AutoencoderKL, index_to_float
 from datasets.mesh_dataset import ObjaverseDataset, collate_fn
@@ -97,7 +99,7 @@ def do_train(train_config, accelerator):
             logger.info(f"Loaded pretrained model from {train_config['train']['weight_init']}")
     requires_grad(ema, False)
     
-    model = DDP(model.to(device), device_ids=[rank])
+    model = DDP(model.to(device), device_ids=[int(os.environ["LOCAL_RANK"])])
     if accelerator.is_main_process:
         logger.info(f"LightningDiT Parameters: {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M")
         logger.info(f"Optimizer: AdamW, lr={train_config['optimizer']['lr']}, beta2={train_config['optimizer']['beta2']}")
@@ -290,10 +292,10 @@ def do_train(train_config, accelerator):
                                                 max_val=0.5, 
                                                 num_bins=train_config['data']['num_bins']
                                             )
-                                            save_mesh(recon_coords[0].to(torch.float32).cpu().numpy(), f'{save_mesh_dir}/{i:03d}.obj')
+                                            save_mesh(recon_coords[0].to(torch.float32).cpu().numpy(), f'{save_mesh_dir}/{i:03d}.obj', num_bins=train_config['data']['num_bins'])
 
                                         if train_config['model']['decoder_type'] == 'reg':
-                                            save_mesh(recon[0].to(torch.float32).cpu().numpy(), f'{save_mesh_dir}/{i:03d}.obj')
+                                            save_mesh(recon[0].to(torch.float32).cpu().numpy(), f'{save_mesh_dir}/{i:03d}.obj', num_bins=train_config['data']['num_bins'])
 
                         if num_batches > 0:
                             avg_val_loss = total_val_loss / num_batches

@@ -263,7 +263,27 @@ def _masked_mean(x, mask):
          mask = mask.repeat_interleave(scale, dim=1)
     return (x * mask).sum() / (mask.expand_as(x).sum() + 1e-8)
 
-def loss_vae(inputs, recon, posterior, mask=None, kl_weight=1e-6, decoder_type="reg", num_bins=512):
+def compute_face_normals(vertices):
+    """
+    计算三角形面的法向量
+    vertices: [B, N, 9] (每个面3个顶点，平铺)
+    return: [B, N, 3] (归一化的法向量)
+    """
+    B, N, _ = vertices.shape
+    tris = vertices.view(B, N, 3, 3)
+    
+    v0 = tris[:, :, 0, :]
+    v1 = tris[:, :, 1, :]
+    v2 = tris[:, :, 2, :]
+    
+    e1 = v1 - v0
+    e2 = v2 - v0
+    
+    normals = torch.cross(e1, e2, dim=-1)
+    normals = F.normalize(normals, dim=-1, p=2, eps=1e-6)
+    return normals
+
+def loss_vae(inputs, recon, posterior, mask=None, kl_weight=1e-6, decoder_type="reg", num_bins=512, normal_weight=0.1):
     # 1. 计算原始 diff
     if decoder_type == "cls":
         target_idx = float_to_index(inputs, num_bins=num_bins).to(inputs.device) # [B, N, 9] long type
@@ -274,9 +294,15 @@ def loss_vae(inputs, recon, posterior, mask=None, kl_weight=1e-6, decoder_type="
             )   
     elif decoder_type == "reg":
         rec_diff = torch.abs(inputs - recon)
+        pred_normals = compute_face_normals(recon)   # [B, N, 3]
+        gt_normals = compute_face_normals(inputs)    # [B, N, 3]
+        cosine_sim = F.cosine_similarity(pred_normals, gt_normals, dim=-1)
+        normal_diff = 1.0 - cosine_sim # [B, N]
+        normal_loss = _masked_mean(normal_diff, mask)
+        rec_diff += normal_loss * normal_weight
+        
     kl_diff = posterior.kl() # [B, N] or [B, N, C]
 
-    # 2. 应用 Mask 并求平均
     rec_loss = _masked_mean(rec_diff, mask)
     kl_loss = _masked_mean(kl_diff, mask)
 

@@ -3,3 +3,4 @@ __pycache__
 debug/
 tensorboard_logs/*
 output/
+tools/run_trainvae1.sh

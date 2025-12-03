@@ -16,9 +16,9 @@ MeshFlow based on lightingDiT.
 
 ```bash
 mkdir downloaded_data & cd downloaded_data
-wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/shapenet.tar.gz # or objaverse
-tar xf shapenet.tar.gz
-rm shapenet.tar.gz
+wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/dummy.tar.gz # or objaverse
+tar xf dummy.tar.gz
+rm dummy.tar.gz
 wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/shapenet-new.tar.gz # or objaverse
 tar xf shapenet-new.tar.gz
 rm shapenet-new.tar.gz

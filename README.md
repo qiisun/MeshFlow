@@ -44,3 +44,18 @@ python eval_vae.py \
   --output_dir output/vae_cls/eval_samples \
   --num_save 20
 ```
+
+
+Run JIT on dummy
+
+```bash
+# prepare dataset
+mkdir downloaded_data & cd downloaded_data
+wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/dummy.tar.gz # or objaverse
+tar xf dummy.tar.gz
+rm dummy.tar.gz
+cd ..
+
+# training
+bash tools/run_train.sh configs/base_jit.yaml
+```

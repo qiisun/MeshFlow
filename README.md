@@ -19,18 +19,24 @@ mkdir downloaded_data & cd downloaded_data
 wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/shapenet.tar.gz # or objaverse
 tar xf shapenet.tar.gz
 rm shapenet.tar.gz
+wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/shapenet-new.tar.gz # or objaverse
+tar xf shapenet-new.tar.gz
+rm shapenet-new.tar.gz
+wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/objaverse.tar.gz # or objaverse
+tar xf objaverse.tar.gz
+rm objaverse.tar.gz
 cd ..
 ```
 Then you should modify the `configs/vae.yaml`.
 
 ### Quick start
+Train meshflow1
 ```bash
 bash tools/run_train.sh configs/base.yaml
+```
 
-# donot use jit
-bash tools/run_train.sh configs/base_jit.yaml
-
-
+Train VAE
+```
 # train auto-encoder
 bash tools/run_trainvae.sh configs/vae.yaml # regression loss
 bash tools/run_trainvae.sh configs/vae_cls.yaml # classification loss
@@ -49,13 +55,6 @@ python eval_vae.py \
 Run JIT on dummy
 
 ```bash
-# prepare dataset
-mkdir downloaded_data & cd downloaded_data
-wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/dummy.tar.gz # or objaverse
-tar xf dummy.tar.gz
-rm dummy.tar.gz
-cd ..
-
 # training
 bash tools/run_train.sh configs/base_jit.yaml
 ```

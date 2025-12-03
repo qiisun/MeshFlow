@@ -38,8 +38,8 @@ rm shapenet.tar.gz
 
 wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/objaverse_occ_v5_ids.tar.gz 
 wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/split.tar.gz
-tar xf objaverse.tar.gz
-rm objaverse.tar.gz
+tar xf objaverse_occ_v5_ids.tar.gz
+rm objaverse_occ_v5_ids.tar.gz
 tar xf split.tar.gz
 rm split.tar.gz
 mkdir objaverse

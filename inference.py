@@ -18,9 +18,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
 import torchvision
 # local imports
-from models.lightningdit import LightningDiT_models
 from transport import create_transport, Sampler
-from datasets.img_latent_dataset import ImgLatentDataset
 from datasets.mesh_dataset import save_mesh
 
 @torch.no_grad()

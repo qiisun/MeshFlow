@@ -1,8 +1,8 @@
 CONFIG_PATH=$1
 
 
-TARGET_GPU_ID=0,1,2,3,4,5,6,7
-GPUS_PER_NODE=8
+TARGET_GPU_ID=7,6
+GPUS_PER_NODE=1
 PRECISION=${PRECISION:-bf16}
 # GPUS_PER_NODE=${GPUS_PER_NODE:-1}
 NNODES=${WORLD_SIZE:-1}
@@ -19,7 +19,7 @@ accelerate launch \
     --num_machines $NNODES \
     --mixed_precision $PRECISION \
     --gpu_ids $TARGET_GPU_ID \
-    train.py \
+    train_pixel.py \
     --config $CONFIG_PATH
 
 

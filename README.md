@@ -15,7 +15,8 @@ MeshFlow based on lightingDiT.
 ### dataset
 
 ```bash
-mkdir downloaded_data & cd downloaded_data
+mkdir downloaded_data
+cd downloaded_data
 wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/dummy.tar.gz # or objaverse
 tar xf dummy.tar.gz
 rm dummy.tar.gz

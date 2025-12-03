@@ -65,7 +65,7 @@ def save_mesh(tokens: np.ndarray, path: str, clean: bool = True):
         mesh.merge_vertices()
         mesh.update_faces(mesh.unique_faces())
         mesh.fix_normals()
-
+    mesh.merge_vertices(merge_tex=True, merge_norm=True)
     mesh.export(path)
 
 

@@ -4,6 +4,7 @@ import math
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+import numpy as np
 
 from models.utils import get_2d_sincos_pos_embed
 from models.equidit import LabelEmbedder, XEmbedder, VertexCrossAttention, DiTLayer, FinalLayer
@@ -15,11 +16,20 @@ def float_to_index(value, min_val=-0.5, max_val=0.5, num_bins=512):
     return (norm * (num_bins - 1)).long()
 
 
+def float_to_index_np(value, min_val=-0.5, max_val=0.5, num_bins=512):
+    norm = (value - min_val) / (max_val - min_val)
+    norm = np.clip(norm, 0, 1)
+    return (norm * (num_bins - 1)).astype(int)
+
 def index_to_float(index, min_val=-0.5, max_val=0.5, num_bins=512):
     norm = index.float() / (num_bins - 1)
     value = norm * (max_val - min_val) + min_val
     return value
 
+def index_to_float_np(index, min_val=-0.5, max_val=0.5, num_bins=512):
+    norm = index.astype(np.float32) / (num_bins - 1)
+    value = norm * (max_val - min_val) + min_val
+    return value
 class AutoencoderKL(nn.Module):
     def __init__(self, 
                  hidden_dim=768,

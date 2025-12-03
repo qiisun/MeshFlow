@@ -18,7 +18,7 @@ import numpy as np
 import sys
 sys.path.append('.')
 from utils.ot_utils import optimal_sum_numpy
-from models.equivae import float_to_index, index_to_float
+from models.equivae import float_to_index_np, index_to_float_np
 import torch
 from torch.utils.data import Dataset, DataLoader
 import tqdm
@@ -51,8 +51,8 @@ def save_mesh(tokens: np.ndarray, path: str, clean: bool = True, num_bins=512):
         return vertices, faces
 
     vertices, faces = simple_detokenize_mesh(tokens=tokens)
-    vertices = float_to_index(vertices, min_val=-0.5, max_val=0.5, num_bins=num_bins)
-    vertices = index_to_float(vertices, min_val=-0.5, max_val=0.5, num_bins=num_bins)
+    vertices = float_to_index_np(vertices, min_val=-0.5, max_val=0.5, num_bins=num_bins)
+    vertices = index_to_float_np(vertices, min_val=-0.5, max_val=0.5, num_bins=num_bins)
 
     mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
 

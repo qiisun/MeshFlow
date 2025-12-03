@@ -263,7 +263,7 @@ def _masked_mean(x, mask):
          mask = mask.repeat_interleave(scale, dim=1)
     return (x * mask).sum() / (mask.expand_as(x).sum() + 1e-8)
 
-def loss_vae(inputs, recon, posterior, mask=None, kl_weight=1e-6, decoder_type="reg", num_bins=256):
+def loss_vae(inputs, recon, posterior, mask=None, kl_weight=1e-6, decoder_type="reg", num_bins=512):
     # 1. 计算原始 diff
     if decoder_type == "cls":
         target_idx = float_to_index(inputs, num_bins=num_bins).to(inputs.device) # [B, N, 9] long type

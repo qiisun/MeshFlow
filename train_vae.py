@@ -35,10 +35,15 @@ def get_cosine_schedule_with_warmup(optimizer, num_warmup_steps, num_training_st
         if current_step < num_warmup_steps:
             return float(current_step) / float(max(1, num_warmup_steps))
         
+        if current_step > num_training_steps:
+            return min_lr / base_lr
+            
         progress = float(current_step - num_warmup_steps) / float(max(1, num_training_steps - num_warmup_steps))
-        cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
         
-        return max(0.0, cosine_decay)
+        cosine_coeff = 0.5 * (1.0 + math.cos(math.pi * progress))
+        decay_factor = (1 - min_lr / base_lr) * cosine_coeff + (min_lr / base_lr)
+        
+        return decay_factor
 
     return LambdaLR(optimizer, lr_lambda)
 
@@ -234,6 +239,7 @@ def do_train(train_config, accelerator):
                     writer.add_scalar('Loss/train', avg_loss, train_steps)
                 # Reset monitoring variables:
                 running_loss = 0
+                running_kl_loss = 0
                 log_steps = 0
                 start_time = time()
 

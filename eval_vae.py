@@ -33,7 +33,7 @@ def evaluate(args):
     print(f"Loading checkpoint: {args.checkpoint}")
     ckpt = torch.load(args.checkpoint, map_location='cpu')
     
-    if False: #'ema' in ckpt:
+    if 'ema' in ckpt:
         print("Loading EMA weights...")
         model.load_state_dict(ckpt['ema'])
     else:
@@ -45,13 +45,15 @@ def evaluate(args):
     # Setup Dataset
     dataset = ObjaverseDataset(
         data_pth=config['data']['data_path'],
-        training=True, 
+        training=False, 
         noise_sort=False,
         use_custom_prior=config['data'].get('use_custom_prior', False),
         use_decimated_dataset=config['data'].get('use_decimated_dataset', False),
         do_dataset_normalize=config['data'].get('do_dataset_normalize', False),
         vae=True,
         overfit=False,
+        use_rot_aug=True,
+        use_scale_aug=True
     )
 
     dataloader = torch.utils.data.DataLoader(
@@ -68,13 +70,12 @@ def evaluate(args):
     total_kl = 0.0
     num_batches = 0
     saved_count = 0
+    total_acc = []
 
     print(f"Start Evaluation on {len(dataset)} samples...")
     
     with torch.no_grad():
         for i, data in enumerate(tqdm(dataloader)):
-            if i>100:
-                break
             x = data['tokens'].to(device)
             y = data['num_faces'].to(device)
             mask = data['masks'].to(device)
@@ -101,7 +102,19 @@ def evaluate(args):
                 
                 if decoder_type == "cls":
                     # recon shape: [B, N, 9, num_bins] -> argmax -> [B, N, 9] (Indices)
+                    target_indices = float_to_index(
+                        x, 
+                        min_val=-0.5, 
+                        max_val=0.5, 
+                        num_bins=num_bins
+                    ).to(device)                    
                     recon_indices = torch.argmax(recon, dim=-1)
+                    
+                    correct = (recon_indices == target_indices)
+                    mask_expanded = mask.unsqueeze(-1).expand_as(correct)
+                    acc = correct[mask_expanded].float().mean()
+                    total_acc.append(acc.item())
+
                     recon_coords = index_to_float(
                         recon_indices, 
                         min_val=-0.5,
@@ -121,11 +134,13 @@ def evaluate(args):
     avg_loss = total_loss / num_batches
     avg_rec = total_rec / num_batches
     avg_kl = total_kl / num_batches
+    avg_acc = sum(total_acc) / len(total_acc) if total_acc else 0  # <--- 计算平均准确率
 
     print("-" * 30)
     print(f"Avg Loss    : {avg_loss:.6f}")
     print(f"Avg Rec Loss: {avg_rec:.6f}")
     print(f"Avg KL Loss : {avg_kl:.6f}")
+    print(f"Avg Accuracy: {avg_acc:.4%}")
     print(f"Saved {saved_count} meshes to {args.output_dir}")
     print("-" * 30)
 

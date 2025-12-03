@@ -12,6 +12,15 @@ MeshFlow based on lightingDiT.
 - [x] prepare shapenet dataset (full)
 - [x] prepare objaverse dataset
 
+
+### Environment
+
+```bash
+conda env create -f env.yaml
+conda activate mflow
+```
+
+
 ### dataset
 
 ```bash

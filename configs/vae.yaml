@@ -14,7 +14,7 @@ data:
 
   do_dataset_normalize: True
   noise_sort: 'ot'
-  max_length: 400
+  max_length: 800
 
   num_bins: 256  # quantize final results
   use_rot_aug: True  # <---- whether to use rotation augmentation when training
@@ -52,7 +52,7 @@ model:
 # recommend to use default settings
 train:
   max_steps: 400000
-  global_batch_size: 384 #96
+  global_batch_size: 256 #96
   global_seed: 0
   output_dir: 'output'
   exp_name: 'vae' # <---- experiment name, set as you like

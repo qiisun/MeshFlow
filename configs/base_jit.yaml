@@ -57,7 +57,7 @@ model:
 # recommend to use default settings
 train:
   max_steps: 400000
-  global_batch_size: 8 # 8
+  global_batch_size: 4
   global_seed: 0
   output_dir: 'output'
   exp_name: 'jit' # <---- experiment name, set as you like

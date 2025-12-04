@@ -115,58 +115,90 @@ class ObjaverseDataset(Dataset):
                  overfit=False,
                  use_rot_aug=False,
                  use_scale_aug=False):
+        
         self.vae = vae
-        self.data_pth = data_pth
         self.training = training
         self.use_custom_prior = use_custom_prior
         self.use_decimated_dataset = use_decimated_dataset
         self.do_dataset_normalize = do_dataset_normalize
         self.max_face_length = max_face_length
-        self.use_rot_aug = use_rot_aug  # only augment when training
-        self.use_scale_aug = use_scale_aug  # only augment when training
-        
-        if self.training:
-            split = np.load(os.path.join(data_pth, 'split', "train.npz"), allow_pickle=True)['npz_list'].tolist()
-        else:
-            split = np.load(os.path.join(data_pth, 'split', "test.npz"), allow_pickle=True)['npz_list'].tolist()
-        split_uids = [item['uid'] for item in split]
-        if self.training and self.use_decimated_dataset:
-            data_path = os.path.join(self.data_pth, "objaverse_occ_v5_ids_decimated")
-        else:
-            data_path = os.path.join(self.data_pth, "objaverse_occ_v5_ids")
+        self.use_rot_aug = use_rot_aug 
+        self.use_scale_aug = use_scale_aug 
+        self.noise_sort = noise_sort 
 
-        # load all meshes from dataset directory
-        all_dataset = os.listdir(data_path)
-        print(f'[INFO] Loading {data_path}...')
+        if data_pth == 'all':
+            self.dataset_paths = [
+                "downloaded_data/objaverse",
+                "downloaded_data/shapenet-new"
+            ]
+            print(f'[INFO] Joint Training Mode: Loading Objaverse + ShapeNet')
+        else:
+            self.dataset_paths = [data_pth]
+            print(f'[INFO] Single Dataset Mode: Loading {data_pth}')
+        raw_data_list = []
         
-        data = []
-        for mesh in tqdm.tqdm(all_dataset):
-            if mesh.endswith('.npz') and mesh.split(".")[0] in split_uids: # MUST CHECK
-                mesh_path = os.path.join(data_path, mesh)
-                data.append(np.load(mesh_path, allow_pickle=True))
-                assert data[-1]['faces_num']
-        
-        split_set = 'train' if training else 'test'
-        print(f"{split_set} dataset total data samples: {len(split)}")
+        for current_data_pth in self.dataset_paths:
+            print(f'--- Processing dataset: {current_data_pth} ---')
+            split_filename = "train.npz" if self.training else "test.npz"
+            split_path = os.path.join(current_data_pth, 'split', split_filename)
+            
+            if not os.path.exists(split_path):
+                print(f"[WARNING] Split file not found: {split_path}, skipping...")
+                continue
 
-        # filter mesh with max face length
+            split = np.load(split_path, allow_pickle=True)['npz_list'].tolist()
+            split_uids = set([item['uid'] for item in split]) # 转为set加速查询
+            print(f"Loaded split {split_filename}, count: {len(split_uids)}")
+
+            folder_prefix = "objaverse_occ_v5_ids"
+
+            if self.training and self.use_decimated_dataset:
+                data_subfolder = f"{folder_prefix}_decimated"
+            else:
+                data_subfolder = folder_prefix
+            
+            data_path = os.path.join(current_data_pth, data_subfolder)
+            
+            if not os.path.exists(data_path):
+                print(f"[WARNING] Predicted folder {data_path} not found.") 
+                continue
+
+            print(f'[INFO] Loading meshes from {data_path}...')
+            
+            all_files = os.listdir(data_path)
+            current_dataset_count = 0
+            
+            for mesh_file in tqdm.tqdm(all_files, desc=f"Loading {os.path.basename(current_data_pth)}"):
+                if mesh_file.endswith('.npz'):
+                    uid = mesh_file.split(".")[0]
+                    if uid in split_uids: 
+                        mesh_path = os.path.join(data_path, mesh_file)
+                        try:
+                            loaded_data = np.load(mesh_path, allow_pickle=True)
+                            if loaded_data['faces_num']: 
+                                raw_data_list.append(loaded_data)
+                                current_dataset_count += 1
+                        except Exception as e:
+                            print(f"Error loading {mesh_path}: {e}")
+            
+            print(f"Loaded {current_dataset_count} valid samples from {current_data_pth}")
+
         self.data = []
-        for cur_data in data: 
+        print(f"[INFO] Filtering data with max_face_length={max_face_length}...")
+        
+        for cur_data in raw_data_list: 
             num_faces = cur_data['faces_num']
             if num_faces > 20 and num_faces < max_face_length:
                 self.data.append(cur_data)
         
-        if split_set == 'train' and overfit:
-            self.data = self.data * 100000
+        if self.training and overfit:
+            print("[INFO] Overfit mode enabled: Duplicating dataset.")
+            self.data = self.data * 100
 
-        print(f"{split_set} dataset total data samples after filter: {len(self.data)}")
-        
-        self.noise_sort = noise_sort # random / sort
+        print(f"Total Combined Dataset Size: {len(self.data)}")
         
         if do_dataset_normalize:
             self.std = 0.3
-            # std = np.load(os.path.join(opt.data_pth, 'objaverse_mean_std.npz'), allow_pickle=True)['std']
-            # self.std = std[[2, 1, 0]] # sync with tokenize 
             
     def __len__(self):
         return len(self.data)

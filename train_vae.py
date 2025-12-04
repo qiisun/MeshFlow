@@ -30,7 +30,7 @@ from datasets.mesh_dataset import ObjaverseDataset, collate_fn
 from datasets.mesh_dataset import save_mesh
 
 
-def get_cosine_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, min_lr=1e-6):
+def get_cosine_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, min_lr=1e-6, last_epoch=-1):
     base_lr = optimizer.param_groups[0]['lr']
     
     def lr_lambda(current_step):
@@ -47,7 +47,7 @@ def get_cosine_schedule_with_warmup(optimizer, num_warmup_steps, num_training_st
         
         return decay_factor
 
-    return LambdaLR(optimizer, lr_lambda)
+    return LambdaLR(optimizer, lr_lambda, last_epoch=last_epoch)
 
 def do_train(train_config, accelerator):
     """
@@ -104,9 +104,10 @@ def do_train(train_config, accelerator):
         logger.info(f"LightningDiT Parameters: {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M")
         logger.info(f"Optimizer: AdamW, lr={train_config['optimizer']['lr']}, beta2={train_config['optimizer']['beta2']}")
     opt = torch.optim.AdamW(model.parameters(), lr=train_config['optimizer']['lr'], weight_decay=0, betas=(0.9, train_config['optimizer']['beta2']))
-    
-    scheduler = get_cosine_schedule_with_warmup(opt, 500, train_config['train']['max_steps'])
-    
+
+    for param_group in opt.param_groups:
+        param_group['initial_lr'] = train_config['optimizer']['lr']
+        
     # Setup data
     dataset = ObjaverseDataset(
         data_pth=train_config['data']['data_path'],
@@ -182,10 +183,13 @@ def do_train(train_config, accelerator):
             if accelerator.is_main_process:
                 logger.info("No checkpoint found. Starting training from scratch.")
     model, opt, loader = accelerator.prepare(model, opt, loader)
-
+    
     # Variables for monitoring/logging purposes:
     if not train_config['train']['resume']:
         train_steps = 0
+        
+    scheduler = get_cosine_schedule_with_warmup(opt, 500, train_config['train']['max_steps'], last_epoch=train_steps-1)
+
     log_steps = 0
     running_loss = 0
     running_kl_loss = 0
@@ -230,14 +234,14 @@ def do_train(train_config, accelerator):
                 steps_per_sec = log_steps / (end_time - start_time)
                 # Reduce loss history over all processes:
                 avg_loss = torch.tensor(running_loss / log_steps, device=device)
-                avg_kl   = torch.tensor(running_kl_loss / log_steps, device=device) # <--- 新增
+                avg_kl   = torch.tensor(running_kl_loss / log_steps, device=device)
                 dist.all_reduce(avg_kl, op=dist.ReduceOp.SUM)
                 dist.all_reduce(avg_loss, op=dist.ReduceOp.SUM)
                 avg_loss = avg_loss.item() / dist.get_world_size()
                 avg_kl   = avg_kl.item() / dist.get_world_size()
                 if accelerator.is_main_process:
-                    logger.info(f"(step={train_steps:07d}) Train Loss: {avg_loss:.4f}, Train Steps/Sec: {steps_per_sec:.2f}")
-                    writer.add_scalar('Loss/train_kl', avg_kl, train_steps)     # <--- 新增
+                    logger.info(f"(step={train_steps:07d}) Train Loss: {avg_loss:.6f}, Train Steps/Sec: {steps_per_sec:.2f}, LR: {scheduler.get_last_lr()[0]:.6f}")
+                    writer.add_scalar('Loss/train_kl', avg_kl, train_steps)
                     writer.add_scalar('Loss/train', avg_loss, train_steps)
                 # Reset monitoring variables:
                 running_loss = 0

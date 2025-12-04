@@ -52,7 +52,7 @@ model:
 # recommend to use default settings
 train:
   max_steps: 400000
-  global_batch_size: 384
+  global_batch_size: 768
   global_seed: 0
   output_dir: 'output'
   exp_name: 'vae_full' # <---- experiment name, set as you like
@@ -63,5 +63,5 @@ train:
   resume: True
   
 optimizer:
-  lr: 0.00002 # 2e-5
+  lr: 0.0001 # 2e-5
   beta2: 0.95

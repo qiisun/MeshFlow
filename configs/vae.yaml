@@ -51,7 +51,7 @@ model:
 
 # recommend to use default settings
 train:
-  max_steps: 400000
+  max_steps: 150000
   global_batch_size: 768
   global_seed: 0
   output_dir: 'output'

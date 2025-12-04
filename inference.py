@@ -15,7 +15,6 @@ import torch.distributed as dist
 from accelerate import Accelerator
 from torch.utils.data import DataLoader
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.utils.tensorboard import SummaryWriter
 import torchvision
 # local imports
 from transport import create_transport, Sampler

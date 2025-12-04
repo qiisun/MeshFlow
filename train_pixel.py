@@ -11,7 +11,7 @@ import torch
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
+from utils.logger import WandBLogger as SummaryWriter
 
 import math
 import yaml
@@ -55,13 +55,8 @@ def do_train(train_config, accelerator):
         os.makedirs(checkpoint_dir, exist_ok=True)
         logger = create_logger(experiment_dir)
         logger.info(f"Experiment directory created at {experiment_dir}")
-        tensorboard_dir_log = f"tensorboard_logs/{exp_name}"
-        os.makedirs(tensorboard_dir_log, exist_ok=True)
-        writer = SummaryWriter(log_dir=tensorboard_dir_log)
-
-        # add configs to tensorboard
-        config_str=json.dumps(train_config, indent=4)
-        writer.add_text('training configs', config_str, global_step=0)
+        # Initialize wandb logger
+        writer = SummaryWriter(log_dir=experiment_dir, project="MeshFlow2", name=exp_name, config=train_config)
     checkpoint_dir = f"{train_config['train']['output_dir']}/{train_config['train']['exp_name']}/checkpoints"
 
     # get rank

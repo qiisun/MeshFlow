@@ -74,6 +74,7 @@ sympy @ file:///croot/sympy_1724938189289/work
 tensorboard==2.20.0
 tensorboard-data-server==0.7.2
 tqdm==4.67.1
+wandb>=0.15.0
 trimesh==4.10.0
 triton==3.0.0
 typer-slim==0.20.0

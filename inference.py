@@ -49,7 +49,10 @@ def do_sample_simple(model, valid_loader, device, transport, t_range, train_conf
         mask = data['masks'].to(device)
 
         model_kwargs = dict(y=y, mask=mask)
-        loss_dict = transport.training_losses(model, x1, x0, model_kwargs)
+        # Use autocast during validation to match training behavior and ensure consistent dtype
+        # When accelerator is configured with mixed_precision, we need explicit autocast during forward pass
+        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+            loss_dict = transport.training_losses(model, x1, x0, model_kwargs)
 
         z = torch.randn_like(x0, device=device) # random sample noise
         # y = torch.tensor([label], device=device)

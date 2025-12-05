@@ -62,6 +62,7 @@ train:
   output_dir: 'output'
   exp_name: 'jit' # <---- experiment name, set as you like
   ckpt: null
+  resume: true  # <---- set to true to resume from latest checkpoint
   log_every: 100
   ckpt_every: 10000 # 20000
   

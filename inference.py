@@ -157,6 +157,7 @@ def do_sample(train_config, accelerator, ckpt_path=None, cfg_scale=None, model=N
         train_config['transport']['sample_eps'],
         use_cosine_loss = train_config['transport']['use_cosine_loss'] if 'use_cosine_loss' in train_config['transport'] else False,
         use_lognorm = train_config['transport']['use_lognorm'] if 'use_lognorm' in train_config['transport'] else False,
+        use_jit=train_config['transport']['use_jit'] if 'use_jit' in train_config['transport'] else False,
     )  # default: velocity;
     sampler = Sampler(transport)
     mode = train_config['sample']['mode']

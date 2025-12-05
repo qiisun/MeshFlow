@@ -57,22 +57,30 @@ def do_train(train_config, accelerator):
     device = accelerator.device
 
     # Setup an experiment folder:
-    if accelerator.is_main_process:
-        os.makedirs(train_config['train']['output_dir'], exist_ok=True)  # Make results folder (holds all experiment subfolders)
+    # Compute exp_name for all processes (needed for checkpoint_dir)
+    model_string_name = train_config['model']['model_type'].replace("/", "-")
+    if train_config['train']['exp_name'] is None:
+        # Only main process computes experiment_index to avoid race conditions
+        # Then we'll broadcast it, but for simplicity, all processes can compute the same way
+        # (race condition only matters if multiple processes create dirs simultaneously)
+        if accelerator.is_main_process:
+            os.makedirs(train_config['train']['output_dir'], exist_ok=True)
+        accelerator.wait_for_everyone()  # Ensure directory exists before glob
         experiment_index = len(glob(f"{train_config['train']['output_dir']}/*"))
-        model_string_name = train_config['model']['model_type'].replace("/", "-")
-        if train_config['train']['exp_name'] is None:
-            exp_name = f'{experiment_index:03d}-{model_string_name}'
-        else:
-            exp_name = train_config['train']['exp_name']
+        exp_name = f'{experiment_index:03d}-{model_string_name}'
+    else:
+        exp_name = train_config['train']['exp_name']
+    
+    # Now exp_name is available to all processes
+    checkpoint_dir = f"{train_config['train']['output_dir']}/{exp_name}/checkpoints"
+    
+    if accelerator.is_main_process:
         experiment_dir = f"{train_config['train']['output_dir']}/{exp_name}"  # Create an experiment folder
-        checkpoint_dir = f"{experiment_dir}/checkpoints"  # Stores saved model checkpoints
         os.makedirs(checkpoint_dir, exist_ok=True)
         logger = create_logger(experiment_dir)
         logger.info(f"Experiment directory created at {experiment_dir}")
         # Initialize wandb logger
         writer = SummaryWriter(log_dir=experiment_dir, project="MeshFlow2", name=exp_name, config=train_config)
-    checkpoint_dir = f"{train_config['train']['output_dir']}/{train_config['train']['exp_name']}/checkpoints"
 
     # get rank
     rank = accelerator.local_process_index

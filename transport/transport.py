@@ -199,6 +199,7 @@ class Transport:
 
         terms = {}
         terms['pred'] = model_output
+        terms['t'] = t  # Include timesteps for logging purposes
         if self.model_type == ModelType.VELOCITY:
             terms['loss'] = mean_flat(((model_output - ut) ** 2))
             if self.use_cosine_loss:

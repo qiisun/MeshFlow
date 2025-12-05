@@ -5,7 +5,9 @@ This module provides a drop-in replacement for TensorBoard's SummaryWriter.
 
 import wandb
 import os
-from typing import Optional, Union
+import torch
+import numpy as np
+from typing import Optional, Union, Dict, List
 import json
 
 
@@ -153,6 +155,154 @@ class WandBLogger:
         
         if global_step == self._step:
             self._step += 1
+    
+    def add_histogram_loss_by_timestep(
+        self, 
+        timesteps: torch.Tensor, 
+        losses: torch.Tensor, 
+        global_step: Optional[int] = None,
+        num_bins: int = 20,
+        tag: str = 'Loss/by_timestep'
+    ):
+        """
+        Log a histogram of loss values binned by timestep/noise schedule.
+        
+        Args:
+            timesteps: Tensor of timesteps [batch_size] or [batch_size, ...]
+            losses: Tensor of loss values per sample [batch_size] or [batch_size, ...]
+            global_step: Step number. If None, uses internal step counter.
+            num_bins: Number of bins for the histogram
+            tag: Tag name for the histogram
+        """
+        if global_step is None:
+            global_step = self._step
+        
+        if wandb.run is None:
+            return
+        
+        # Flatten if needed and convert to numpy
+        timesteps_flat = timesteps.detach().cpu().flatten().numpy()
+        losses_flat = losses.detach().cpu().flatten().numpy()
+        
+        # Create bins for timesteps
+        t_min, t_max = timesteps_flat.min(), timesteps_flat.max()
+        if t_max - t_min < 1e-6:  # All timesteps are the same
+            bins = np.linspace(t_min - 0.1, t_max + 0.1, num_bins + 1)
+        else:
+            bins = np.linspace(t_min, t_max, num_bins + 1)
+        
+        # Bin the timesteps and compute average loss per bin
+        bin_indices = np.digitize(timesteps_flat, bins) - 1
+        bin_indices = np.clip(bin_indices, 0, num_bins - 1)
+        
+        bin_centers = (bins[:-1] + bins[1:]) / 2
+        bin_losses = []
+        bin_counts = []
+        
+        for i in range(num_bins):
+            mask = bin_indices == i
+            if mask.sum() > 0:
+                bin_losses.append(losses_flat[mask].mean())
+                bin_counts.append(mask.sum())
+            else:
+                bin_losses.append(0.0)
+                bin_counts.append(0)
+        
+        # Filter out empty bins and create data for logging
+        valid_bins = []
+        for center, loss, count in zip(bin_centers, bin_losses, bin_counts):
+            if count > 0:
+                valid_bins.append((center, loss, count))
+        
+        if len(valid_bins) > 0:
+            # Extract data
+            centers, losses_avg, counts = zip(*valid_bins)
+            
+            # Create a table for visualization (wandb will create a nice plot from this)
+            table_data = [[float(c), float(l), int(cnt)] for c, l, cnt in valid_bins]
+            table = wandb.Table(
+                columns=["timestep", "avg_loss", "sample_count"],
+                data=table_data
+            )
+            # Log table - wandb will auto-create visualizations
+            wandb.log({f"{tag}": wandb.plot.line(table, "timestep", "avg_loss", 
+                                                title=f"Loss vs Timestep (Step {global_step})")}, 
+                     step=global_step)
+            
+            # Also create a histogram showing distribution of losses across timesteps
+            # Create histogram data from the raw loss values, weighted by timestep bins
+            all_losses_for_hist = []
+            for i, (center, loss_avg, count) in enumerate(valid_bins):
+                # Add loss values for this timestep bin (use average, repeated by count for weighting)
+                all_losses_for_hist.extend([loss_avg] * min(int(count), 1000))
+            
+            if len(all_losses_for_hist) > 0:
+                hist = wandb.Histogram(np.array(all_losses_for_hist))
+                wandb.log({f"{tag}_distribution": hist}, step=global_step)
+    
+    def add_gradient_norms(
+        self,
+        model: torch.nn.Module,
+        global_step: Optional[int] = None,
+        prefix: str = "Gradients"
+    ):
+        """
+        Log gradient norms for all parameters (excluding biases).
+        
+        Args:
+            model: PyTorch model
+            global_step: Step number. If None, uses internal step counter.
+            prefix: Prefix for the log tags
+        """
+        if global_step is None:
+            global_step = self._step
+        
+        if wandb.run is None:
+            return
+        
+        total_norm = 0.0
+        param_norms = {}
+        
+        # Compute gradient norms for each parameter (excluding biases)
+        for name, param in model.named_parameters():
+            if param.grad is not None and 'bias' not in name.lower():
+                param_norm = param.grad.data.norm(2)
+                total_norm += param_norm.item() ** 2
+                # Store norm per parameter
+                param_norms[name] = param_norm.item()
+        
+        total_norm = total_norm ** (1. / 2)
+        
+        # Log total gradient norm
+        wandb.log({f"{prefix}/total_norm": total_norm}, step=global_step)
+        
+        # Log per-layer gradient norms (limit to avoid too many metrics)
+        # Group by layer name prefix to reduce clutter
+        layer_norms = {}
+        for name, norm in param_norms.items():
+            # Extract layer name (e.g., "blocks.0.attn.qkv_proj" -> "blocks.0.attn")
+            parts = name.split('.')
+            if len(parts) > 1:
+                layer_name = '.'.join(parts[:-1])
+            else:
+                layer_name = name
+            
+            if layer_name not in layer_norms:
+                layer_norms[layer_name] = []
+            layer_norms[layer_name].append(norm)
+        
+        # Log average norm per layer
+        for layer_name, norms in layer_norms.items():
+            avg_norm = np.mean(norms)
+            # Clean up layer name for wandb (remove special characters)
+            clean_name = layer_name.replace('.', '/')
+            wandb.log({f"{prefix}/layer_norm/{clean_name}": avg_norm}, step=global_step)
+        
+        # Create a histogram of all parameter gradient norms
+        if param_norms:
+            norms_list = list(param_norms.values())
+            hist = wandb.Histogram(norms_list)
+            wandb.log({f"{prefix}/param_norm_histogram": hist}, step=global_step)
     
     def close(self):
         """Finish the wandb run."""

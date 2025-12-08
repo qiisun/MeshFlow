@@ -86,5 +86,5 @@ Run JIT on dummy
 # training
 bash tools/run_train.sh configs/base_jit.yaml
 
-CUDA_VISIBLE_DEVICES=7, python train_pixel_single.py --config configs/base_jit.yaml
+CUDA_VISIBLE_DEVICES=6, python train_pixel_single.py --config configs/base_jit.yaml
 ```

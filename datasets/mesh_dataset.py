@@ -39,7 +39,7 @@ def generate_custom_prior(num_samples, var_scale=0.05):
     return np.concatenate([vertice23, vertice1], axis=1)  # [N, 3, 3]
 
 
-def save_mesh(tokens: np.ndarray, path: str, clean: bool = True, num_bins=512):
+def save_mesh(tokens: np.ndarray, path: str, clean: bool = True, num_bins=512, max_val=0.5):
     # [N, 3, 3] -> mesh
     def simple_detokenize_mesh(tokens: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         coords = tokens.reshape(-1, 3).astype(np.float32)
@@ -51,7 +51,7 @@ def save_mesh(tokens: np.ndarray, path: str, clean: bool = True, num_bins=512):
         return vertices, faces
 
     vertices, faces = simple_detokenize_mesh(tokens=tokens)
-    vertices = float_to_index_np(vertices, min_val=-0.5, max_val=0.5, num_bins=num_bins)
+    vertices = float_to_index_np(vertices, min_val=-max_val, max_val=max_val, num_bins=num_bins)
     vertices = index_to_float_np(vertices, min_val=-0.5, max_val=0.5, num_bins=num_bins)
 
     mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
@@ -198,7 +198,7 @@ class ObjaverseDataset(Dataset):
         print(f"Total Combined Dataset Size: {len(self.data)}")
         
         if do_dataset_normalize:
-            self.std = 0.3
+            self.std = 1 #0.3
             
     def __len__(self):
         return len(self.data)

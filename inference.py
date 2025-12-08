@@ -69,7 +69,7 @@ def do_sample_simple(model, valid_loader, device, transport, t_range, train_conf
             samples = sample_fn(z, model_fn, **model_kwargs)[-1]
         images.append(samples)
         # save meshes
-        save_mesh(samples[0].cpu().numpy(), f'{save_dir_mesh}/{i:03d}.obj')
+        save_mesh(samples[0].cpu().numpy(), f'{save_dir_mesh}/{i:03d}.obj', max_val=1.67)
     
     
     # update validation loss

@@ -129,8 +129,8 @@ def do_train(train_config, accelerator):
         use_rot_aug=train_config['data']['use_rot_aug'] if 'use_rot_aug' in train_config['data'] else True,
         use_scale_aug=train_config['data']['use_scale_aug'] if 'use_scale_aug' in train_config['data'] else True,
     )
-    batch_size_per_gpu = int(np.round(train_config['train']['global_batch_size'] / accelerator.num_processes))
-    global_batch_size = batch_size_per_gpu * accelerator.num_processes
+    batch_size_per_gpu = int(np.round(train_config['train']['global_batch_size'] ))
+    global_batch_size = batch_size_per_gpu 
     loader = DataLoader(
         dataset,
         batch_size=batch_size_per_gpu,

@@ -82,3 +82,4 @@ typing_extensions @ file:///croot/typing_extensions_1756280817316/work
 urllib3 @ file:///croot/urllib3_1727769808118/work
 varname==0.15.1
 Werkzeug==3.1.4
+wandb

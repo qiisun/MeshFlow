@@ -192,7 +192,6 @@ class Transport:
         model_output = model(xt, t, **model_kwargs)
         B, *_, C = xt.shape
         assert model_output.size() == (B, *xt.size()[1:-1], C)
-        
         if self.use_jit:
             model_output = (model_output - xt) / (1-t.unsqueeze(-1).unsqueeze(-1).clamp_min(5e-2))
             ut = (x1 - xt) / (1 - t.unsqueeze(-1).unsqueeze(-1).clamp_min(5e-2))

@@ -198,7 +198,7 @@ class ObjaverseDataset(Dataset):
         print(f"Total Combined Dataset Size: {len(self.data)}")
         
         if do_dataset_normalize:
-            self.std = 1 #0.3
+            self.std = 0.3
             
     def __len__(self):
         return len(self.data)

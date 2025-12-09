@@ -5,7 +5,7 @@ ckpt_path: 'path/to/your/checkpoint.pt' # <---- download our pre-trained lightni
 
 data:
   valid_path: 'debug/valid'
-  data_path: 'downloaded_data/objaverse'
+  data_path: 'downloaded_data/shapenet-new' # 'downloaded_data/objaverse'
 
   # recommend to use default settings
   num_workers: 8
@@ -47,12 +47,12 @@ model:
   face_cond: True
   face_bin: 10
   decoder_type: "reg"
-
+  use_rms: True
 
 # recommend to use default settings
 train:
   max_steps: 200000
-  global_batch_size: 256 #768
+  global_batch_size: 512 #768
   global_seed: 0
   output_dir: 'output'
   exp_name: 'vae' # <---- experiment name, set as you like
@@ -60,7 +60,7 @@ train:
   log_every: 100
   ckpt_every: 10000 # 100 for debug
   kl_weight: 0.00001 # <---- 1e-6
-  resume: True
+  resume: False
   
 optimizer:
   lr: 0.0001 # 1e-4

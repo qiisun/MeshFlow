@@ -24,6 +24,9 @@ data:
 
   do_dataset_normalize: True
   noise_sort: 'ot'
+  use_rot_aug: False  # <---- whether to use rotation augmentation when training
+  use_scale_aug: False  # <---- whether to use scaling augmentation when training
+
 
 # recommend to use default settings (we wil release codes with SD-VAE later)
 # vae:
@@ -57,11 +60,12 @@ model:
 # recommend to use default settings
 train:
   max_steps: 400000
-  global_batch_size: 4
+  global_batch_size: 16
   global_seed: 0
   output_dir: 'output'
   exp_name: 'jit' # <---- experiment name, set as you like
   ckpt: null
+  resume: false  # <---- set to true to resume from latest checkpoint
   log_every: 100
   ckpt_every: 10000 # 20000
   

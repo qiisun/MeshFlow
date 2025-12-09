@@ -11,7 +11,7 @@ import torch
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
+from utils.logger import WandBLogger as SummaryWriter
 
 import math
 import yaml
@@ -42,27 +42,30 @@ def do_train(train_config, accelerator):
     device = accelerator.device
 
     # Setup an experiment folder:
-    if accelerator.is_main_process:
-        os.makedirs(train_config['train']['output_dir'], exist_ok=True)  # Make results folder (holds all experiment subfolders)
+    # Compute exp_name for all processes (needed for checkpoint_dir)
+    model_string_name = train_config['model']['model_type'].replace("/", "-")
+    if train_config['train']['exp_name'] is None:
+        # Only main process computes experiment_index to avoid race conditions
+        # Then we'll broadcast it, but for simplicity, all processes can compute the same way
+        # (race condition only matters if multiple processes create dirs simultaneously)
+        if accelerator.is_main_process:
+            os.makedirs(train_config['train']['output_dir'], exist_ok=True)
+        accelerator.wait_for_everyone()  # Ensure directory exists before glob
         experiment_index = len(glob(f"{train_config['train']['output_dir']}/*"))
-        model_string_name = train_config['model']['model_type'].replace("/", "-")
-        if train_config['train']['exp_name'] is None:
-            exp_name = f'{experiment_index:03d}-{model_string_name}'
-        else:
-            exp_name = train_config['train']['exp_name']
+        exp_name = f'{experiment_index:03d}-{model_string_name}'
+    else:
+        exp_name = train_config['train']['exp_name']
+    
+    # Now exp_name is available to all processes
+    checkpoint_dir = f"{train_config['train']['output_dir']}/{exp_name}/checkpoints"
+    
+    if accelerator.is_main_process:
         experiment_dir = f"{train_config['train']['output_dir']}/{exp_name}"  # Create an experiment folder
-        checkpoint_dir = f"{experiment_dir}/checkpoints"  # Stores saved model checkpoints
         os.makedirs(checkpoint_dir, exist_ok=True)
         logger = create_logger(experiment_dir)
         logger.info(f"Experiment directory created at {experiment_dir}")
-        tensorboard_dir_log = f"tensorboard_logs/{exp_name}"
-        os.makedirs(tensorboard_dir_log, exist_ok=True)
-        writer = SummaryWriter(log_dir=tensorboard_dir_log)
-
-        # add configs to tensorboard
-        config_str=json.dumps(train_config, indent=4)
-        writer.add_text('training configs', config_str, global_step=0)
-    checkpoint_dir = f"{train_config['train']['output_dir']}/{train_config['train']['exp_name']}/checkpoints"
+        # Initialize wandb logger
+        writer = SummaryWriter(log_dir=experiment_dir, project="MeshFlow2", name=exp_name, config=train_config)
 
     # get rank
     rank = accelerator.local_process_index
@@ -126,8 +129,8 @@ def do_train(train_config, accelerator):
         use_rot_aug=train_config['data']['use_rot_aug'] if 'use_rot_aug' in train_config['data'] else True,
         use_scale_aug=train_config['data']['use_scale_aug'] if 'use_scale_aug' in train_config['data'] else True,
     )
-    batch_size_per_gpu = int(np.round(train_config['train']['global_batch_size'] / accelerator.num_processes))
-    global_batch_size = batch_size_per_gpu * accelerator.num_processes
+    batch_size_per_gpu = int(np.round(train_config['train']['global_batch_size'] ))
+    global_batch_size = batch_size_per_gpu 
     loader = DataLoader(
         dataset,
         batch_size=batch_size_per_gpu,
@@ -199,6 +202,13 @@ def do_train(train_config, accelerator):
     use_checkpoint = train_config['train']['use_checkpoint'] if 'use_checkpoint' in train_config['train'] else True
     if accelerator.is_main_process:
         logger.info(f"Using checkpointing: {use_checkpoint}")
+    
+    # Variables for loss histogram and gradient norm logging
+    # Log these less frequently (every 5x the regular log interval)
+    loss_hist_log_every = train_config['train']['log_every'] * 5 if 'loss_hist_log_every' not in train_config['train'] else train_config['train']['loss_hist_log_every']
+    grad_log_every = train_config['train']['log_every'] * 5 if 'grad_log_every' not in train_config['train'] else train_config['train']['grad_log_every']
+    timesteps_buffer = []
+    losses_buffer = []
 
     while True:
         for data in loader:
@@ -224,8 +234,28 @@ def do_train(train_config, accelerator):
                 loss = loss_dict["cos_loss"].mean() + mse_loss
             else:
                 loss = loss_dict["loss"].mean()
+            
+            # Collect timesteps and losses for histogram logging (before backward)
+            if accelerator.is_main_process and 't' in loss_dict:
+                t = loss_dict['t']  # Timesteps [batch_size]
+                if 'cos_loss' in loss_dict:
+                    sample_losses = loss_dict["loss"]  # [batch_size]
+                else:
+                    sample_losses = loss_dict["loss"]  # [batch_size]
+                
+                # Store timesteps and losses
+                timesteps_buffer.append(t.detach().cpu())
+                losses_buffer.append(sample_losses.detach().cpu())
+            
             opt.zero_grad()
             accelerator.backward(loss)
+            
+            # Log gradient norms (after backward, before clipping)
+            if accelerator.is_main_process and (train_steps + 1) % grad_log_every == 0:
+                # Get the unwrapped model for gradient access
+                unwrapped_model = accelerator.unwrap_model(model)
+                writer.add_gradient_norms(unwrapped_model, global_step=train_steps + 1)
+            
             if 'max_grad_norm' in train_config['optimizer']:
                 if accelerator.sync_gradients:
                     accelerator.clip_grad_norm_(model.parameters(), train_config['optimizer']['max_grad_norm'])
@@ -254,6 +284,24 @@ def do_train(train_config, accelerator):
                 running_loss = 0
                 log_steps = 0
                 start_time = time()
+            
+            # Log loss histogram by timestep (less frequently)
+            if accelerator.is_main_process and train_steps % loss_hist_log_every == 0 and len(timesteps_buffer) > 0:
+                # Concatenate all collected timesteps and losses
+                all_timesteps = torch.cat(timesteps_buffer, dim=0)
+                all_losses = torch.cat(losses_buffer, dim=0)
+                
+                # Log histogram
+                writer.add_histogram_loss_by_timestep(
+                    all_timesteps, 
+                    all_losses, 
+                    global_step=train_steps,
+                    num_bins=20
+                )
+                
+                # Clear buffers for next collection period
+                timesteps_buffer = []
+                losses_buffer = []
 
             # Save checkpoint:
             if train_steps % train_config['train']['ckpt_every'] == 0 and train_steps > 0:

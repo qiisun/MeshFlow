@@ -15,7 +15,6 @@ import torch.distributed as dist
 from accelerate import Accelerator
 from torch.utils.data import DataLoader
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.utils.tensorboard import SummaryWriter
 import torchvision
 # local imports
 from transport import create_transport, Sampler
@@ -50,7 +49,10 @@ def do_sample_simple(model, valid_loader, device, transport, t_range, train_conf
         mask = data['masks'].to(device)
 
         model_kwargs = dict(y=y, mask=mask)
-        loss_dict = transport.training_losses(model, x1, x0, model_kwargs)
+        # Use autocast during validation to match training behavior and ensure consistent dtype
+        # When accelerator is configured with mixed_precision, we need explicit autocast during forward pass
+        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+            loss_dict = transport.training_losses(model, x1, x0, model_kwargs)
 
         z = torch.randn_like(x0, device=device) # random sample noise
         # y = torch.tensor([label], device=device)
@@ -67,7 +69,7 @@ def do_sample_simple(model, valid_loader, device, transport, t_range, train_conf
             samples = sample_fn(z, model_fn, **model_kwargs)[-1]
         images.append(samples)
         # save meshes
-        save_mesh(samples[0].cpu().numpy(), f'{save_dir_mesh}/{i:03d}.obj')
+        save_mesh(samples[0].cpu().numpy(), f'{save_dir_mesh}/{i:03d}.obj', max_val=1.67)
     
     
     # update validation loss
@@ -155,6 +157,7 @@ def do_sample(train_config, accelerator, ckpt_path=None, cfg_scale=None, model=N
         train_config['transport']['sample_eps'],
         use_cosine_loss = train_config['transport']['use_cosine_loss'] if 'use_cosine_loss' in train_config['transport'] else False,
         use_lognorm = train_config['transport']['use_lognorm'] if 'use_lognorm' in train_config['transport'] else False,
+        use_jit=train_config['transport']['use_jit'] if 'use_jit' in train_config['transport'] else False,
     )  # default: velocity;
     sampler = Sampler(transport)
     mode = train_config['sample']['mode']

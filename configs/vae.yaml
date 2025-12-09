@@ -5,7 +5,7 @@ ckpt_path: 'path/to/your/checkpoint.pt' # <---- download our pre-trained lightni
 
 data:
   valid_path: 'debug/valid'
-  data_path: 'all'
+  data_path: 'downloaded_data/objaverse'
 
   # recommend to use default settings
   num_workers: 8
@@ -51,11 +51,11 @@ model:
 
 # recommend to use default settings
 train:
-  max_steps: 150000
-  global_batch_size: 768
+  max_steps: 200000
+  global_batch_size: 256 #768
   global_seed: 0
   output_dir: 'output'
-  exp_name: 'vae_full' # <---- experiment name, set as you like
+  exp_name: 'vae' # <---- experiment name, set as you like
   ckpt: null
   log_every: 100
   ckpt_every: 10000 # 100 for debug
@@ -63,5 +63,5 @@ train:
   resume: True
   
 optimizer:
-  lr: 0.0001 # 2e-5
+  lr: 0.0001 # 1e-4
   beta2: 0.95

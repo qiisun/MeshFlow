@@ -25,6 +25,27 @@ pip install torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 --index-url https
 pip install https://github.com/Dao-AILab/flash-attention/releases/download/v2.6.3/flash_attn-2.6.3+cu123torch2.4cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
 
 pip install -r requirements.txt
+
+# partfield
+mkdir third_party
+cd third_party
+git clone https://github.com/nv-tlabs/PartField.git
+cd PartField
+mkdir model
+wget https://huggingface.co/mikaelaangel/partfield-ckpt/resolve/main/model_objaverse.ckpt
+cd ..
+pip install lightning==2.2 h5py yacs trimesh scikit-image loguru boto3
+pip install mesh2sdf tetgen pymeshlab plyfile einops libigl polyscope potpourri3d simple_parsing arrgh open3d
+pip install torch-scatter -f https://data.pyg.org/whl/torch-2.4.1+cu124.html
+apt install libx11-6 libgl1 libxrender1
+pip install vtk
+
+# p3sam
+cd third_party/Hunyuan3D-Part/P3-SAM
+
+pip install viser fpsample trimesh numba gradio
+CUDA_VISIBLE_DEVICES=6, python auto_mask.py --mesh_path assets --output_path results/all
+
 ```
 
 
@@ -87,4 +108,17 @@ Run JIT on dummy
 bash tools/run_train.sh configs/base_jit.yaml
 
 CUDA_VISIBLE_DEVICES=6, python train_pixel_single.py --config configs/base_jit.yaml
+```
+
+
+### Extract feature
+
+```bash
+cd third_party/PartField
+CUDA_VISIBLE_DEVICES=6, python partfield_inference.py -c configs/final/demo.yaml --opts continue_ckpt model/model_objaverse.ckpt result_name partfield_features/objaverse dataset.data_path ../../downloaded_data/dummy/objaverse_occ_v5_ids
+# 注意如果有文件的话，会跳过
+
+cd ../..
+python tools/merge_feature.py
+bash tools/run_train_421a.sh configs/base.yaml
 ```

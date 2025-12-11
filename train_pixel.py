@@ -12,7 +12,6 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from utils.logger import WandBLogger as SummaryWriter
-
 import math
 import yaml
 import json
@@ -24,14 +23,14 @@ from time import time
 from glob import glob
 from copy import deepcopy
 from collections import OrderedDict
+from functools import partial
+import torch.nn.functional as F
+from accelerate import Accelerator
 
 from models.equidit import DiT
 from transport import create_transport
-from accelerate import Accelerator
 from inference import do_sample_simple
-
 from datasets.mesh_dataset import ObjaverseDataset, collate_fn
-from functools import partial
 
 
 def do_train(train_config, accelerator):
@@ -85,6 +84,7 @@ def do_train(train_config, accelerator):
                 face_cond=train_config['model']['face_cond'],
                 face_bin=train_config['model']['face_bin'],
                 use_rmsnorm=train_config['model']['use_rmsnorm'] if 'use_rmsnorm' in train_config['model'] else False,
+                use_repa=train_config['train']['use_repa']
             )
     ema = deepcopy(model).to(device)  # Create an EMA of the model for use after training
 
@@ -128,6 +128,7 @@ def do_train(train_config, accelerator):
         vae=False,
         use_rot_aug=train_config['data']['use_rot_aug'] if 'use_rot_aug' in train_config['data'] else True,
         use_scale_aug=train_config['data']['use_scale_aug'] if 'use_scale_aug' in train_config['data'] else True,
+        use_repa=train_config['train']['use_repa']
     )
     batch_size_per_gpu = int(np.round(train_config['train']['global_batch_size'] / accelerator.num_processes))
     global_batch_size = batch_size_per_gpu * accelerator.num_processes
@@ -155,6 +156,7 @@ def do_train(train_config, accelerator):
         vae=False,
         use_rot_aug=False,
         use_scale_aug=False,
+        use_repa=train_config['train']['use_repa']
     )
 
         valid_loader = DataLoader(
@@ -203,6 +205,17 @@ def do_train(train_config, accelerator):
     if accelerator.is_main_process:
         logger.info(f"Using checkpointing: {use_checkpoint}")
 
+    if train_config['train']['use_repa']:
+        captured_feats = {} 
+
+        def get_repa_hook(name):
+            def hook(model, input, output):
+                captured_feats[name] = output
+            return hook
+
+        repa_layer_idx = train_config['train']['repa_idx']
+        hook_handle = model.module.layers[repa_layer_idx].register_forward_hook(get_repa_hook("mid_feat"))
+
     while True:
         for data in loader:
             x1 = data['tokens']
@@ -220,12 +233,28 @@ def do_train(train_config, accelerator):
                 y = y.to(device)
             model_kwargs = dict(y=y, mask=mask)
             
+            if train_config['train']['use_repa']:
+                captured_feats.clear()
+                
             loss_dict = transport.training_losses(model, x1, x0, model_kwargs)
+            
             if 'cos_loss' in loss_dict:
                 mse_loss = loss_dict["loss"].mean()
                 loss = loss_dict["cos_loss"].mean() + mse_loss
             else:
                 loss = loss_dict["loss"].mean()
+                
+            
+            if train_config['train']['use_repa']:
+                f_feature = data['f_feature'] # [b, N_face, c']
+                student_feat_raw = captured_feats["mid_feat"].reshape(x1.shape[0], x1.shape[1], 3, -1).mean(dim=2)
+
+                student_feat_proj = model.module.proj(student_feat_raw.to(torch.float32))
+                cos_sim = F.cosine_similarity(student_feat_proj, f_feature, dim=-1)
+                repa_loss = ((1.0 - cos_sim) * mask).sum() / (mask.sum() + 1e-6)
+                loss_dict['repa_loss'] = repa_loss
+                loss = loss + repa_loss * 0.5
+                
             opt.zero_grad()
             accelerator.backward(loss)
             if 'max_grad_norm' in train_config['optimizer']:

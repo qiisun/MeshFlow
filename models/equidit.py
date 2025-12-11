@@ -283,16 +283,18 @@ class DiT(nn.Module):
                  class_dropout_prob=0.1, use_coord_encoding=True, 
                  version=2, pe_freq=20, mixed_precision='bf16',
                  use_dit_like_pe=False, face_cond=False, face_bin=None,
-                 use_rmsnorm=False):
+                 use_rmsnorm=False,
+                 use_repa=False
+                 ):
         super().__init__()
 
         input_dim = 3 if version > 1 else 9
         self.version = version
         self.use_coord_encoding = use_coord_encoding
         self.hidden_size = hidden_dim
+        self.use_repa = use_repa
         # project input
         self.x_embedder = XEmbedder(hidden_dim, pe_freq=pe_freq, use_coord_encoding=use_coord_encoding, version=version)
-            
         # positional encoding (just use a learnable positional encoding)
         if use_dit_like_pe:
             self.pos_embed = nn.Parameter(torch.randn(1, max_length, hidden_dim) / hidden_dim ** 0.5)
@@ -319,6 +321,19 @@ class DiT(nn.Module):
         self.vertex_cross_attn = VertexCrossAttention(
             modulation_type=modulation_type, hidden_dim=hidden_dim)
         self.final_layer = FinalLayer(hidden_dim, input_dim, use_rmsnorm=use_rmsnorm) # input_dim: 9 for v2, 3 for v3
+        
+        if self.use_repa:
+            self.proj = nn.Sequential(
+                nn.Sequential(
+                    nn.Linear(hidden_dim, hidden_dim),
+                    nn.SiLU(),
+                    nn.Linear(hidden_dim, hidden_dim),
+                    nn.SiLU(),
+                    nn.Linear(hidden_dim, 448),
+                )
+            )
+
+        
         self.initialize_weights()
     
 

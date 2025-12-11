@@ -5,3 +5,4 @@ tensorboard_logs/*
 output/
 tools/run_trainvae_*
 tools/update.py
+thirdparty/

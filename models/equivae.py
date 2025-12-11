@@ -54,6 +54,7 @@ class AutoencoderKL(nn.Module):
         Output Posterior over: [B, 3*N, latent_dim]
         """
         h = self.encoder(x, cond, mask)
+        import ipdb; ipdb.set_trace()
         moments = self.quant_linear(h)
         mask_expanded = mask.repeat_interleave(3, dim=1)
 

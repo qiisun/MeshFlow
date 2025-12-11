@@ -70,12 +70,17 @@ bash tools/run_trainvae.sh configs/vae.yaml # regression loss
 bash tools/run_trainvae.sh configs/vae_cls.yaml # classification loss
 
 
-#eval auto-encoder
+# eval auto-encoder (L1 loss)
+mkdir -p output/vae_rms/checkpoints
+cd output/vae_rms/checkpoints
+wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/vae_ckpts/0080000.pt
+cd ../../..
+
 CUDA_VISIBLE_DEVICES=7, \
 python eval_vae.py \
-  --config configs/vae_cls.yaml \
-  --checkpoint output/vae_cls/checkpoints/0120000.pt \
-  --output_dir output/vae_cls/eval_samples \
+  --config configs/vae.yaml \
+  --checkpoint output/vae_rms/checkpoints/0080000.pt \
+  --output_dir output/vae_rms/eval_samples \
   --num_save 20
 ```
 

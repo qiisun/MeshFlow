@@ -23,7 +23,8 @@ def evaluate(args):
     # Init Model
     model = AutoencoderKL(latent_channels=config['model']['latent_channels'],
                           decoder_type=config['model']['decoder_type'],
-                          num_bins=config['data']['num_bins']).to(device)
+                          num_bins=config['data']['num_bins'],
+                          use_rmsnorm=config['model']['use_rms']).to(device)
     
     decoder_type = config['model']['decoder_type']
     num_bins = config['data']['num_bins']
@@ -82,7 +83,7 @@ def evaluate(args):
 
             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                 # Deterministic inference (Mode)
-                recon, posterior, z = model(x, cond=y, mask=mask, sample_posterior=False)
+                recon, posterior, z = model(x, cond=y, mask=mask, sample_posterior=True)
                 
                 loss, rec_l, kl_l = loss_vae(
                     x, recon, posterior, mask=mask, 

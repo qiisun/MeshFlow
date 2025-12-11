@@ -61,6 +61,9 @@ train:
   ckpt_every: 10000 # 100 for debug
   kl_weight: 0.00001 # <---- 1e-6
   resume: False
+
+  use_repa: False
+
   
 optimizer:
   lr: 0.0001 # 1e-4

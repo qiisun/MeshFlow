@@ -331,11 +331,11 @@ class ObjaverseDataset(Dataset):
             if not self.vae:    
                 coords, noise = self.sample_noise(coords) # [N, 3, 3], [N, 3, 3]
                 data_dict['noise'] = noise.reshape(faces_num, -1)
+                data_dict['f_feature'] = f_feature[perm_idx] if self.use_repa else None
             
             data_dict['coords'] = coords.reshape(faces_num, -1) 
             data_dict['num_faces'] = faces_num
             data_dict['len'] = faces_num
-            data_dict['f_feature'] = f_feature[perm_idx] if self.use_repa else None
 
             return data_dict
         except Exception as e:
@@ -356,8 +356,6 @@ def collate_fn(batch, max_seq_length=800):
     masks = []
     features = []
     input_c = batch[0]['coords'].shape[1] 
-    if batch[0]['f_feature'] is not None:
-        input_f = batch[0]['f_feature'].shape[1]
         
     for item in batch:
         if max_len >= item['len']:
@@ -376,7 +374,7 @@ def collate_fn(batch, max_seq_length=800):
             if "f_feature" in item.keys():
                 features.append(np.concatenate([
                     item['f_feature'],
-                    np.full((pad_len, input_f), 0),
+                    np.full((pad_len, item['f_feature'].shape[1]), 0),
                 ], axis=0))
                 
             masks.append(np.concatenate([

@@ -114,7 +114,8 @@ class ObjaverseDataset(Dataset):
                  vae=False,
                  overfit=False,
                  use_rot_aug=False,
-                 use_scale_aug=False):
+                 use_scale_aug=False,
+                 use_repa=False):
         
         self.vae = vae
         self.training = training
@@ -125,6 +126,7 @@ class ObjaverseDataset(Dataset):
         self.use_rot_aug = use_rot_aug 
         self.use_scale_aug = use_scale_aug 
         self.noise_sort = noise_sort 
+        self.use_repa = use_repa
 
         if data_pth == 'all':
             self.dataset_paths = [
@@ -280,6 +282,10 @@ class ObjaverseDataset(Dataset):
             vertices = data['vertices']
             faces = data['faces']
             faces_num = data['faces_num']
+            
+            if self.use_repa:
+                f_feature = data['f_feature']  # [f, feat_dim]
+                assert len(f_feature) == len(faces)
             assert vertices.shape[1] == 3 and faces.shape[1] == 3
             data_dict = {}
             if 'category' in data:
@@ -328,6 +334,7 @@ class ObjaverseDataset(Dataset):
             data_dict['coords'] = coords.reshape(faces_num, -1) 
             data_dict['num_faces'] = faces_num
             data_dict['len'] = faces_num
+            data_dict['f_feature'] = f_feature if self.use_repa else None
 
             return data_dict
         except Exception as e:
@@ -346,7 +353,11 @@ def collate_fn(batch, max_seq_length=800):
     tokens = []
     noises = []
     masks = []
+    features = []
     input_c = batch[0]['coords'].shape[1] 
+    if batch[0]['f_feature'] is not None:
+        input_f = batch[0]['f_feature'].shape[1]
+        
     for item in batch:
         if max_len >= item['len']:
             pad_len = max_len - item['len']
@@ -360,6 +371,12 @@ def collate_fn(batch, max_seq_length=800):
                     item['noise'], # mesh tokens
                     np.full((pad_len, input_c), 0), # padding
                 ], axis=0)) # [M, 9]
+                
+            if "f_feature" in item.keys():
+                features.append(np.concatenate([
+                    item['f_feature'],
+                    np.full((pad_len, input_f), 0),
+                ], axis=0))
                 
             masks.append(np.concatenate([
                 np.ones(item['len']), 
@@ -378,6 +395,8 @@ def collate_fn(batch, max_seq_length=800):
     results['tokens'] = torch.from_numpy(np.stack(tokens, axis=0)).float() # [B, M]
     if len(noises) > 0:
         results['noise'] = torch.from_numpy(np.stack(noises, axis=0)).float() # [B, M]
+    if len(features) > 0:
+        results['f_feature'] = torch.from_numpy(np.stack(features, axis=0)).float() # [B, M]
     results['masks'] = torch.from_numpy(np.stack(masks, axis=0)).bool()
     return results
 

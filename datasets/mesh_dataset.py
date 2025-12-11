@@ -264,17 +264,18 @@ class ObjaverseDataset(Dataset):
     
     def tokenize_mesh(self, vertices, faces, shuffle_face=True, shuffle_vertex=True, discrete_bins=None):
         triangle_soup = vertices[faces]  # [N, 3, 3]
+        N = triangle_soup.shape[0]
         if shuffle_face:
-            np.random.shuffle(triangle_soup)
+            perm_idx = np.random.permutation(N)
+            triangle_soup = triangle_soup[perm_idx]
         if shuffle_vertex:
-            N = triangle_soup.shape[0]
             all_perm = np.array([[0,1,2], [1,2,0], [2,0,1]])
             perm = np.random.randint(0,3, size=(triangle_soup.shape[0],))
             triangle_soup = triangle_soup[np.arange(N)[:, None], all_perm[perm]]
         
         if discrete_bins is not None:
             triangle_soup = np.round(triangle_soup * discrete_bins) / discrete_bins
-        return triangle_soup # [N, 3, 3]
+        return triangle_soup, perm_idx # [N, 3, 3]
     
     def __getitem__(self, idx):
         try:
@@ -323,7 +324,7 @@ class ObjaverseDataset(Dataset):
             if vertices is None:
                 # sample another data
                 return self.__getitem__(np.random.randint(0, len(self.data)))
-            coords = self.tokenize_mesh(vertices, faces) # [N, 3, 3] FIXME: shuffle faces/vertices
+            coords, perm_idx = self.tokenize_mesh(vertices, faces) # [N, 3, 3] FIXME: shuffle faces/vertices
             if self.do_dataset_normalize and (not self.vae):
                 coords = coords / self.std
             
@@ -334,7 +335,7 @@ class ObjaverseDataset(Dataset):
             data_dict['coords'] = coords.reshape(faces_num, -1) 
             data_dict['num_faces'] = faces_num
             data_dict['len'] = faces_num
-            data_dict['f_feature'] = f_feature if self.use_repa else None
+            data_dict['f_feature'] = f_feature[perm_idx] if self.use_repa else None
 
             return data_dict
         except Exception as e:

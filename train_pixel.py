@@ -214,7 +214,8 @@ def do_train(train_config, accelerator):
             return hook
 
         repa_layer_idx = train_config['train']['repa_idx']
-        hook_handle = model.module.layers[repa_layer_idx].register_forward_hook(get_repa_hook("mid_feat"))
+        unwrapped_model = accelerator.unwrap_model(model)
+        hook_handle = unwrapped_model.layers[repa_layer_idx].register_forward_hook(get_repa_hook("mid_feat"))
 
     while True:
         for data in loader:
@@ -249,7 +250,7 @@ def do_train(train_config, accelerator):
                 f_feature = data['f_feature'] # [b, N_face, c']
                 student_feat_raw = captured_feats["mid_feat"].reshape(x1.shape[0], x1.shape[1], 3, -1).mean(dim=2)
 
-                student_feat_proj = model.module.proj(student_feat_raw.to(torch.float32))
+                student_feat_proj = unwrapped_model.proj(student_feat_raw.to(torch.float32))
                 cos_sim = F.cosine_similarity(student_feat_proj, f_feature, dim=-1)
                 repa_loss = ((1.0 - cos_sim) * mask).sum() / (mask.sum() + 1e-6)
                 loss_dict['repa_loss'] = repa_loss
@@ -280,7 +281,7 @@ def do_train(train_config, accelerator):
                 dist.all_reduce(avg_loss, op=dist.ReduceOp.SUM)
                 avg_loss = avg_loss.item() / dist.get_world_size()
                 if accelerator.is_main_process:
-                    logger.info(f"(step={train_steps:07d}) Train Loss: {avg_loss:.4f}, Train Steps/Sec: {steps_per_sec:.2f}")
+                    logger.info(f"(step={train_steps:07d}) Train Loss: {avg_loss:.5f}, REPA: {loss_dict.get('repa_loss', None):.5f}, Train Steps/Sec: {steps_per_sec:.2f}")
                     writer.add_scalar('Loss/train', avg_loss, train_steps)
                 # Reset monitoring variables:
                 running_loss = 0

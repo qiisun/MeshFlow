@@ -4,6 +4,8 @@ debug/
 tensorboard_logs/*
 output/
 tools/run_trainvae_*
+tools/run_train*
+
 tools/update.py
 
 

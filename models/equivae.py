@@ -30,6 +30,7 @@ def index_to_float_np(index, min_val=-0.5, max_val=0.5, num_bins=512):
     norm = index.astype(np.float32) / (num_bins - 1)
     value = norm * (max_val - min_val) + min_val
     return value
+
 class AutoencoderKL(nn.Module):
     def __init__(self, 
                  hidden_dim=768,
@@ -78,10 +79,9 @@ class AutoencoderKL(nn.Module):
         
         # 2. Sample (训练时采样，推理时通常取 mode)
         if sample_posterior:
-            z = posterior.sample() # [b, N, c]
+            z = posterior.sample() # [b, N, c] 
         else:
-            z = posterior.mode()
-            
+            z = posterior.mode() # z[mask.unsqueeze(2).repeat(1,1,3).reshape(bs, -1)]
         reconstruction = self.decode(z, cond, mask)
         return reconstruction, posterior, z
 

@@ -78,13 +78,17 @@ cd ..
 ```
 Then you should modify the `configs/vae.yaml`.
 
-### Quick start
-Train meshflow1
+### Train MeshFlow-1
 ```bash
 bash tools/run_train.sh configs/base.yaml
 ```
 
-Train VAE
+### Train Latent MeshFlow
+```bash
+bash tools/run_train_latent.sh configs/latent.yaml
+```
+
+### Train VAE & Evaluate VAE
 ```
 # train auto-encoder
 bash tools/run_trainvae.sh configs/vae.yaml # regression loss
@@ -97,16 +101,16 @@ cd output/vae_rms/checkpoints
 wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/vae_ckpts/0080000.pt
 cd ../../..
 
-CUDA_VISIBLE_DEVICES=7, \
+CUDA_VISIBLE_DEVICES=6, \
 python eval_vae.py \
   --config configs/vae.yaml \
   --checkpoint output/vae_rms/checkpoints/0080000.pt \
   --output_dir output/vae_rms/eval_samples \
-  --num_save 20
+  --num_save 40
 ```
 
 
-Run JIT on dummy
+### Run JIT on dummy
 
 ```bash
 # training

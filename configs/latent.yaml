@@ -1,0 +1,90 @@
+ckpt_path: 'path/to/your/checkpoint.pt'
+
+data:
+  valid_path: 'debug/valid'
+  data_path: './downloaded_data/dummy'
+  fid_reference_file: 'path/to/your/VIRTUAL_imagenet256_labeled.npz'
+
+  # recommend to use default settings
+  image_size: 256
+  num_classes: 1000
+  num_workers: 8
+  latent_norm: true
+  latent_multiplier: 1.0
+  do_dataset_normalize: True
+  noise_sort: 'random'
+  num_bins: 256 # unused in regression decoder
+
+vae:
+  latent_channels: 3
+  model_type: "equidit"
+  use_rmsnorm: True
+  scale_factor: 0.1666 # note: on the evaluation dataset.
+  vae_ckpt: output/vae_rms/checkpoints/0080000.pt
+  decoder_type: "reg"
+
+model:
+  model_type: "equidit"
+  use_qknorm: false
+  use_swiglu: true
+  use_rmsnorm: true
+  wo_shift: false
+
+  hidden_dim: 768
+  num_heads: 12
+  max_length: 800
+  input_dim: 9
+  num_layers: 12
+  gradient_checkpointing: False
+  use_coord_encoding: True
+  version: 3
+  pe_freq: 20
+  mixed_precision:
+  use_dit_like_pe: False
+  face_cond: True
+  face_bin: 10
+
+# recommend to use default settings
+train:
+  max_steps: 400000
+  global_batch_size: 8
+  global_seed: 0
+  output_dir: 'output'
+  exp_name: 'ldm'
+  ckpt: null
+  log_every: 100
+  ckpt_every: 10000 # 100 for debug
+  use_rot_aug: false
+  use_scale_aug: false
+  use_repa: false
+  
+optimizer:
+  lr: 0.0002
+  beta2: 0.95
+  
+# recommend to use default settings
+transport:
+  path_type: Linear
+  prediction: velocity
+  loss_weight: null
+  sample_eps: null
+  train_eps: null
+  use_cosine_loss: true
+  use_lognorm: true
+  use_jit: false
+
+# recommend to use default settings
+sample:
+  mode: ODE
+  sampling_method: euler
+  atol: 0.000001
+  rtol: 0.001
+  reverse: false
+  likelihood: false
+  num_sampling_steps: 50
+  cfg_scale: 10.0
+  # recommend to use default settings
+  per_proc_batch_size: 4
+  fid_num: 50000
+  cfg_interval_start: 0.11
+  timestep_shift: 0.3

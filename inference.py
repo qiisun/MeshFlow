@@ -21,7 +21,11 @@ from transport import create_transport, Sampler
 from datasets.mesh_dataset import save_mesh
 
 @torch.no_grad()
-def do_sample_simple(model, valid_loader, device, transport, t_range, train_config, accelerator, train_steps, save_dir):
+def do_sample_simple(model, valid_loader, 
+                     device, transport, 
+                     train_config, accelerator,
+                     train_steps, save_dir,
+                     vae = None, latent_scale_factor=0.1666):
     sampler = Sampler(transport)
     mode = "ODE" # train_config['sample']['mode']
     timestep_shift = 0
@@ -42,20 +46,17 @@ def do_sample_simple(model, valid_loader, device, transport, t_range, train_conf
     
     images = []
     for i, data in tqdm(enumerate(valid_loader), desc="Generating Demo Samples"):
-        # currently only support batch_size=1
+        # FIXME: currently only support batch_size=1
         x1 = data['tokens'].to(device)
         x0 = data['noise'].to(device) # presampled noise
         y = data['num_faces'].to(device)
         mask = data['masks'].to(device)
 
         model_kwargs = dict(y=y, mask=mask)
-        # Use autocast during validation to match training behavior and ensure consistent dtype
-        # When accelerator is configured with mixed_precision, we need explicit autocast during forward pass
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
             loss_dict = transport.training_losses(model, x1, x0, model_kwargs)
 
         z = torch.randn_like(x0, device=device) # random sample noise
-        # y = torch.tensor([label], device=device)
         z = torch.cat([z, z], 0)
         model_unwarp = accelerator.unwrap_model(model)
         y_null = torch.tensor([model_unwarp.uncond_y] * 1, device=device) #TODO: pay attention; we are not 1000 classes
@@ -68,9 +69,16 @@ def do_sample_simple(model, valid_loader, device, transport, t_range, train_conf
             # mask: [bs, N], no repeat
             samples = sample_fn(z, model_fn, **model_kwargs)[-1]
         images.append(samples)
+        
         # save meshes
-        save_mesh(samples[0].cpu().numpy(), f'{save_dir_mesh}/{i:03d}.obj', max_val=1.67)
-    
+        if vae is None:
+            # normalize the [-0.5, 0.5] to [-1.67, 1.67] in pixel diffusion code
+            save_mesh(samples[0].cpu().numpy(), f'{save_dir_mesh}/{i:03d}.obj', max_val=1.67)
+        else:
+            samples = samples.reshape(samples.shape[0],-1,3)[:1] # [1, 3*N, 3]
+            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                sample_decoded = vae.decode(samples / latent_scale_factor, cond=data['num_faces'].to(device), mask=mask)
+            save_mesh(sample_decoded[0].cpu().float().numpy(), f'{save_dir_mesh}/{i:03d}.obj', max_val=0.5)
     
     # update validation loss
     if 'cos_loss' in loss_dict:

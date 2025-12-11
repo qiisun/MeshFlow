@@ -151,7 +151,7 @@ if __name__ == "__main__":
     parser.add_argument('--checkpoint', type=str, required=True)
     parser.add_argument('--output_dir', type=str, default='eval_results')
     parser.add_argument('--num_save', type=int, default=20)
-    parser.add_argument('--batch_size', type=int, default=8)
+    parser.add_argument('--batch_size', type=int, default=256)
     args = parser.parse_args()
     
     evaluate(args)

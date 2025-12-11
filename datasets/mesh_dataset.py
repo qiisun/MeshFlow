@@ -331,7 +331,8 @@ class ObjaverseDataset(Dataset):
             if not self.vae:    
                 coords, noise = self.sample_noise(coords) # [N, 3, 3], [N, 3, 3]
                 data_dict['noise'] = noise.reshape(faces_num, -1)
-                data_dict['f_feature'] = f_feature[perm_idx] if self.use_repa else None
+                if self.use_repa:
+                    data_dict['f_feature'] = f_feature[perm_idx]
             
             data_dict['coords'] = coords.reshape(faces_num, -1) 
             data_dict['num_faces'] = faces_num

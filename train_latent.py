@@ -23,9 +23,8 @@ from glob import glob
 from copy import deepcopy
 from collections import OrderedDict
 
-# --- Models ---
 from models.equidit import DiT
-from models.equivae import AutoencoderKL # Import VAE
+from models.equivae import AutoencoderKL
 from transport import create_transport
 from accelerate import Accelerator
 from inference import do_sample_simple # You might need to update inference to decode latents
@@ -40,6 +39,26 @@ def do_train(train_config, accelerator):
     """
     device = accelerator.device
 
+    # --- 1. VAE Setup (First Stage - Frozen) ---
+    vae_config = train_config['vae']
+    vae = AutoencoderKL(
+        latent_channels=vae_config['latent_channels'], 
+        decoder_type=vae_config['decoder_type'],
+        num_bins=train_config['data']['num_bins'],
+        use_rmsnorm=vae_config.get('use_rmsnorm', False)
+    ).to(device)
+
+    if 'vae_ckpt' in vae_config:
+        vae_ckpt = torch.load(vae_config['vae_ckpt'], map_location='cpu')
+        vae.load_state_dict(vae_ckpt['ema'])
+        if accelerator.is_main_process:
+            print(f"Successfully loaded VAE from {vae_config['vae_ckpt']}")
+    
+    vae.eval()
+    requires_grad(vae, False)
+
+    latent_scale_factor = vae_config.get('scale_factor', 1.0)
+    
     # --- 1. Setup Experiment Dir ---
     model_string_name = train_config['model']['model_type'].replace("/", "-")
     if train_config['train']['exp_name'] is None:
@@ -62,42 +81,13 @@ def do_train(train_config, accelerator):
 
     rank = accelerator.local_process_index
 
-    # --- 2. Load and Freeze VAE (The First Stage) ---
-    # We need the VAE to encode raw data into latents
-    vae_config = train_config['vae']
-    vae = AutoencoderKL(
-        latent_channels=vae_config['latent_channels'], 
-        decoder_type=vae_config['decoder_type'],
-        num_bins=train_config['data']['num_bins'], # Needed if VAE uses quantization
-        use_rmsnorm=vae_config.get('use_rmsnorm', False)
-    ).to(device)
-
-    # Load VAE weights
-    if 'vae_ckpt' in vae_config and vae_config['vae_ckpt'] is not None:
-        if accelerator.is_main_process:
-            logger.info(f"Loading VAE from {vae_config['vae_ckpt']}")
-        vae_ckpt = torch.load(vae_config['vae_ckpt'], map_location='cpu')
-        # Handle state dict keys if needed
-        if 'model' in vae_ckpt: vae_ckpt = vae_ckpt['model']
-        vae_ckpt = {k.replace('module.', ''): v for k, v in vae_ckpt.items()}
-        vae.load_state_dict(vae_ckpt, strict=False)
-    else:
-        raise ValueError("Must provide 'vae_ckpt' in config to train Latent Diffusion!")
-
-    vae.eval()
-    requires_grad(vae, False) # Freeze VAE
-    
-    # Latent Scaling Factor (Crucial for LDM)
-    # Latents usually have std << 1. Diffusion expects std ~ 1.
-    latent_scale_factor = vae_config.get('scale_factor', 1.0) 
-
     # --- 3. Create DiT Model (The Second Stage) ---
     # Note: input_dim is now latent_channels, NOT raw coordinate dim (9)
     model = DiT(
         hidden_dim=train_config['model']['hidden_dim'], 
         num_heads=train_config['model']['num_heads'],
         max_length=train_config['model']['max_length'],
-        input_dim=vae_config['latent_channels'], # <--- INPUT IS LATENT
+        input_dim=vae_config['latent_channels'],
         num_layers=train_config['model']['num_layers'],
         gradient_checkpointing=train_config['model']['gradient_checkpointing'],
         use_coord_encoding=train_config['model']['use_coord_encoding'],
@@ -137,12 +127,10 @@ def do_train(train_config, accelerator):
     opt = torch.optim.AdamW(model.parameters(), lr=train_config['optimizer']['lr'], weight_decay=0, betas=(0.9, train_config['optimizer']['beta2']))
     
     # --- 5. Data Setup ---
-    # We still load raw meshes, VAE encodes them on-the-fly
     dataset = ObjaverseDataset(
         data_pth=train_config['data']['data_path'],
         training=True,
         noise_sort=train_config['data']['noise_sort'],
-        use_custom_prior=train_config['data']['use_custom_prior'],
         use_decimated_dataset=train_config['data'].get('use_decimated_dataset', False),
         do_dataset_normalize=train_config['data'].get('do_dataset_normalize', False),
     )
@@ -157,6 +145,32 @@ def do_train(train_config, accelerator):
         drop_last=True,
         collate_fn=partial(collate_fn, max_seq_length=800)
     )
+    
+    if 'valid_path' in train_config['data']:
+        valid_dataset = ObjaverseDataset(
+        data_pth=train_config['data']['data_path'],
+        noise_sort=train_config['data']['noise_sort'],
+        training=False,
+        use_custom_prior=False,
+        use_decimated_dataset=False,
+        do_dataset_normalize=False,
+        use_rot_aug=train_config['train']['use_rot_aug'],
+        use_scale_aug=train_config['train']['use_scale_aug'],
+        use_repa=train_config['train']['use_repa']
+    )
+
+        valid_loader = DataLoader(
+            valid_dataset,
+            batch_size=1, # batch_size_per_gpu,
+            shuffle=False,
+            num_workers=train_config['data']['num_workers'],
+            pin_memory=True,
+            drop_last=False, # should drop last false for validation
+            collate_fn=partial(collate_fn, max_seq_length=800)
+        )
+        if accelerator.is_main_process:
+            logger.info(f"Validation Dataset contains {len(valid_dataset):,} images {train_config['data']['valid_path']}")
+
 
     # Prepare with Accelerator
     model, opt, loader = accelerator.prepare(model, opt, loader)
@@ -199,41 +213,24 @@ def do_train(train_config, accelerator):
             y = y.to(device)
             mask = mask.to(device)
 
-            # --- [Step A] Encode to Latent Space ---
             with torch.no_grad():
-                # 1. Encode: x -> posterior
-                # Assuming VAE returns (recon, posterior, z) or just posterior
-                # We need to access the encoder part. 
-                # If model is AutoencoderKL, we usually do:
-                # posterior = vae.encode(x_raw)
-                # z = posterior.sample()
-                # But your previous VAE forward might return recon, post, z. 
-                # Let's assume vae.encode() exists or we run forward and take z.
-                
-                # Option 1: If your VAE has specific encode method:
-                # posterior = vae.encode(x_raw)
-                # x_latents = posterior.sample()
-                
-                # Option 2: Run forward (less efficient but safer if API unknown)
-                _, posterior, x_latents = vae(x_raw, cond=y, mask=mask, sample_posterior=True)
-                
-                # 2. Scale Latents
-                # Standardize distribution for diffusion
-                x_latents = x_latents * latent_scale_factor
+                with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                    posterior = vae.encode(x_raw, cond=y, mask=mask)
+                    z = posterior.sample()
+                x_latents = z * latent_scale_factor # [bs, 3*N, 3]
+                x_latents = x_latents.view(x_latents.shape[0], -1, 3, vae.latent_channels).reshape(x_latents.shape[0], -1, 9) # [bs, N, 9]
 
-            # --- [Step B] Diffusion Training ---
-            # x1 (Target) is now the Latent Vector
-            # x0 (Noise) needs to match Latent shape [B, N, C]
-            
             # Sample noise matching latent shape
-            noise = torch.randn_like(x_latents)
-            
+            noise = torch.randn_like(x_latents) # TODO: current raw FM
             model_kwargs = dict(y=y, mask=mask)
             
-            # Compute Flow Matching / Diffusion Loss
             loss_dict = transport.training_losses(model, x1=x_latents, x0=noise, model_kwargs=model_kwargs)
             
-            loss = loss_dict["loss"].mean()
+            if 'cos_loss' in loss_dict:
+                mse_loss = loss_dict["loss"].mean()
+                loss = loss_dict["cos_loss"].mean() + mse_loss
+            else:
+                loss = loss_dict["loss"].mean()
             
             opt.zero_grad()
             accelerator.backward(loss)
@@ -260,28 +257,50 @@ def do_train(train_config, accelerator):
                 avg_loss = avg_loss.item() / dist.get_world_size()
                 
                 if accelerator.is_main_process:
-                    logger.info(f"(step={train_steps:07d}) LDM Loss: {avg_loss:.4f}, Spd: {steps_per_sec:.2f}")
+                    logger.info(f"(step={train_steps:07d}) FM Loss: {avg_loss:.4f}, Spd: {steps_per_sec:.2f}")
                     writer.add_scalar('Loss/train', avg_loss, train_steps)
                 
                 running_loss = 0
                 log_steps = 0
                 start_time = time()
 
-            # Checkpointing
             if train_steps % train_config['train']['ckpt_every'] == 0 and train_steps > 0:
+                # 1. 保存模型检查点 (Checkpoint Saving)
                 if accelerator.is_main_process:
+                    # 确保保存 DiT, EMA, Optimizer 状态，以及配置信息
                     checkpoint = {
                         "model": model.module.state_dict(),
                         "ema": ema.state_dict(),
                         "opt": opt.state_dict(),
                         "config": train_config,
-                        "vae_config": vae_config # Save VAE config reference
+                        "vae_config": vae_config # 保持 LDM 训练的 VAE 配置引用
                     }
                     checkpoint_path = f"{checkpoint_dir}/{train_steps:07d}.pt"
                     torch.save(checkpoint, checkpoint_path)
                     logger.info(f"Saved checkpoint to {checkpoint_path}")
-                dist.barrier()
+                
+                accelerator.wait_for_everyone()
 
+                if 'valid_path' in train_config['data']:
+                    if accelerator.is_main_process:
+                        logger.info(f"Start evaluating at step {train_steps}")
+                        val_loss = do_sample_simple(
+                            model=model.module,
+                            valid_loader=valid_loader, # 假设您已在 do_train 外部创建了 valid_loader
+                            device=device,
+                            transport=transport,
+                            train_config=train_config, 
+                            accelerator=accelerator, 
+                            train_steps=train_steps, 
+                            save_dir=experiment_dir,
+                            vae=vae,
+                            latent_scale_factor=latent_scale_factor
+                        )
+
+                        logger.info(f"Validation Loss: {val_loss:.4f}")
+                        writer.add_scalar('Loss/validation', val_loss, train_steps)
+                    model.train()
+                    
             if train_steps >= train_config['train']['max_steps']:
                 break
         if train_steps >= train_config['train']['max_steps']:
@@ -292,7 +311,6 @@ def do_train(train_config, accelerator):
 
     return accelerator
 
-# --- Utils ---
 def load_weights_with_shape_check(model, checkpoint, rank=0):
     model_state_dict = model.state_dict()
     for name, param in checkpoint['model'].items():

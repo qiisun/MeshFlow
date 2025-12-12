@@ -223,7 +223,6 @@ def do_train(train_config, accelerator):
             # Sample noise matching latent shape
             noise = torch.randn_like(x_latents) # TODO: current raw FM
             model_kwargs = dict(y=y, mask=mask)
-            
             loss_dict = transport.training_losses(model, x1=x_latents, x0=noise, model_kwargs=model_kwargs)
             
             if 'cos_loss' in loss_dict:

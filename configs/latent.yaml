@@ -11,7 +11,7 @@ data:
   num_workers: 8
   latent_norm: true
   latent_multiplier: 1.0
-  do_dataset_normalize: True
+  do_dataset_normalize: False # should DONOT use normalization!!!!!
   noise_sort: 'random'
   num_bins: 256 # unused in regression decoder
 
@@ -47,7 +47,7 @@ model:
 # recommend to use default settings
 train:
   max_steps: 400000
-  global_batch_size: 8
+  global_batch_size: 48
   global_seed: 0
   output_dir: 'output'
   exp_name: 'ldm'

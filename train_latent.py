@@ -82,12 +82,10 @@ def do_train(train_config, accelerator):
     rank = accelerator.local_process_index
 
     # --- 3. Create DiT Model (The Second Stage) ---
-    # Note: input_dim is now latent_channels, NOT raw coordinate dim (9)
     model = DiT(
         hidden_dim=train_config['model']['hidden_dim'], 
         num_heads=train_config['model']['num_heads'],
         max_length=train_config['model']['max_length'],
-        input_dim=vae_config['latent_channels'],
         num_layers=train_config['model']['num_layers'],
         gradient_checkpointing=train_config['model']['gradient_checkpointing'],
         use_coord_encoding=train_config['model']['use_coord_encoding'],
@@ -98,6 +96,7 @@ def do_train(train_config, accelerator):
         face_cond=train_config['model']['face_cond'],
         face_bin=train_config['model']['face_bin'],
         use_rmsnorm=train_config['model']['use_rmsnorm'] if 'use_rmsnorm' in train_config['model'] else False,
+        is_latent=train_config['model']['is_latent']
     )
     ema = deepcopy(model).to(device)
 
@@ -131,8 +130,14 @@ def do_train(train_config, accelerator):
         data_pth=train_config['data']['data_path'],
         training=True,
         noise_sort=train_config['data']['noise_sort'],
-        use_decimated_dataset=train_config['data'].get('use_decimated_dataset', False),
-        do_dataset_normalize=train_config['data'].get('do_dataset_normalize', False),
+        use_decimated_dataset=False,
+        do_dataset_normalize=False,
+        use_rot_aug=train_config['data']['use_rot_aug'],
+        use_scale_aug=train_config['data']['use_scale_aug'],
+        use_repa=train_config['data']['use_repa'],
+        use_permut_aug=train_config['data']['use_permut_aug'],
+        overfit=train_config['data'].get('is_overfit', False)
+
     )
     
     batch_size_per_gpu = int(np.round(train_config['train']['global_batch_size'] / accelerator.num_processes))
@@ -154,9 +159,10 @@ def do_train(train_config, accelerator):
         use_custom_prior=False,
         use_decimated_dataset=False,
         do_dataset_normalize=False,
-        use_rot_aug=train_config['train']['use_rot_aug'],
-        use_scale_aug=train_config['train']['use_scale_aug'],
-        use_repa=train_config['train']['use_repa']
+        use_rot_aug=train_config['data']['use_rot_aug'],
+        use_scale_aug=train_config['data']['use_scale_aug'],
+        use_repa=train_config['data']['use_repa'],
+        use_permut_aug=train_config['data']['use_permut_aug']
     )
 
         valid_loader = DataLoader(
@@ -264,9 +270,7 @@ def do_train(train_config, accelerator):
                 start_time = time()
 
             if train_steps % train_config['train']['ckpt_every'] == 0 and train_steps > 0:
-                # 1. 保存模型检查点 (Checkpoint Saving)
                 if accelerator.is_main_process:
-                    # 确保保存 DiT, EMA, Optimizer 状态，以及配置信息
                     checkpoint = {
                         "model": model.module.state_dict(),
                         "ema": ema.state_dict(),
@@ -285,7 +289,7 @@ def do_train(train_config, accelerator):
                         logger.info(f"Start evaluating at step {train_steps}")
                         val_loss = do_sample_simple(
                             model=model.module,
-                            valid_loader=valid_loader, # 假设您已在 do_train 外部创建了 valid_loader
+                            valid_loader=valid_loader,
                             device=device,
                             transport=transport,
                             train_config=train_config, 

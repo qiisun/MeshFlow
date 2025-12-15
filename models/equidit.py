@@ -1,15 +1,3 @@
-'''
------------------------------------------------------------------------------
-Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
-
-NVIDIA CORPORATION and its licensors retain all intellectual property
-and proprietary rights in and to this software, related documentation
-and any modifications thereto. Any use, reproduction, disclosure or
-distribution of this software and related documentation without an express
-license agreement from NVIDIA CORPORATION is strictly prohibited.
------------------------------------------------------------------------------
-'''
-
 import sys
 sys.path.append('.')
 import math
@@ -17,18 +5,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
-import numpy as np
-
-
-from einops import rearrange
 from models.pos_embed import get_embedder
 from models.swiglu_ffn import SwiGLUFFN 
 from models.rmsnorm import RMSNorm
-from models.attention import SelfAttention, CrossAttention
+from models.attention import SelfAttention
 from models.utils import get_2d_sincos_pos_embed
-
-
-
 
 class GEGLU(nn.Module):
     def forward(self, x):
@@ -37,7 +18,6 @@ class GEGLU(nn.Module):
 
 def modulate(x, shift, scale):
     return x * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
-
 
 class FeedForward(nn.Module):
     def __init__(self, dim, mult=4, nonlin_type="swiglu"):
@@ -200,8 +180,6 @@ class VertexCrossAttention(nn.Module):
             return  x + x_.repeat(1, 3, 1)
         elif self.modulation_type == "mult":
             return  x * x_.repeat(1, 3, 1)
-        # elif self.modulation_type == "concat":
-            # return  torch.cat([x, x_.repeat(1, 3, 1)], dim=-1)
         elif self.modulation_type == "concat":
             return self.linear(torch.cat([x, x_.repeat(1, 3, 1)], dim=-1))
         else:
@@ -212,12 +190,12 @@ class VertexCrossAttention(nn.Module):
 # PixArtAlpha-style
 class DiTLayer(nn.Module):
     def __init__(self, dim, num_heads, gradient_checkpointing=True, mixed_precision='bf16', 
-                 version=3, 
-                 nonlin_type="silu", # 'swiglu'
-                 use_rmsnorm=False,
-                 mlp_ratio=4.0,
-                 use_qknorm=False, # used for stablizing training
-                 ):
+                version=3, 
+                nonlin_type="silu", # 'swiglu'
+                use_rmsnorm=False,
+                mlp_ratio=4.0,
+                use_qknorm=False, # used for stablizing training
+                ):
         super().__init__()
         self.dim = dim
         self.num_heads = num_heads
@@ -233,13 +211,10 @@ class DiTLayer(nn.Module):
             self.norm2 = RMSNorm(dim)
             
         self.attn = SelfAttention(dim, num_heads, mixed_precision=mixed_precision)
-        if version == 4:
-            self.norm3 = nn.LayerNorm(dim, eps=1e-6, elementwise_affine=False)
-            self.attn2 = SelfAttention(dim, num_heads//4, mixed_precision=mixed_precision) # FIXME: 不需要特别大，因为3 << face长度
         self.mlp = FeedForward(dim, mult=mlp_ratio, nonlin_type=nonlin_type)
         self.adaLN_modulation = nn.Sequential(
             nn.SiLU(),
-            nn.Linear(dim, 9 * dim if version == 4 else 6 * dim, bias=True)
+            nn.Linear(dim, 6 * dim, bias=True)
         )
         
     def forward(self, x, c, mask=None):
@@ -261,7 +236,7 @@ class DiTLayer(nn.Module):
         shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.adaLN_modulation(c).chunk(6, dim=1)
         x = x + gate_msa.unsqueeze(1) * self.attn(modulate(self.norm1(x), shift_msa, scale_msa), mask=mask) # masking padded tokens to avoid the attention to see the future
         x = x + gate_mlp.unsqueeze(1) * self.mlp(modulate(self.norm2(x), shift_mlp, scale_mlp),
-                                                 mask=mask, version =self.version)
+                                                mask=mask, version =self.version)
         return x
     
     def _forward_v3(self, x, c, mask=None):
@@ -274,35 +249,37 @@ class DiTLayer(nn.Module):
         x_face = gate_msa.unsqueeze(1) * self.attn(modulate(self.norm1(x_face), shift_msa, scale_msa), mask=mask) 
         x = x + x_face.unsqueeze(2).repeat(1,1,3,1).reshape(b, n_vertex, self.dim) # [B, n_face, 3, C]
         x = x + gate_mlp.unsqueeze(1) * self.mlp(modulate(self.norm2(x), shift_mlp, scale_mlp),
-                                                 mask=mask) # [B, n_vertex, C]
+                                                mask=mask) # [B, n_vertex, C]
         return x
 
 class DiT(nn.Module):
     def __init__(self, hidden_dim=1024, num_heads=16, max_length=800, 
-                 input_dim=9, num_layers=24, gradient_checkpointing=True, 
-                 class_dropout_prob=0.1, use_coord_encoding=True, 
-                 version=2, pe_freq=20, mixed_precision='bf16',
-                 use_dit_like_pe=False, face_cond=False, face_bin=None,
-                 use_rmsnorm=False,
-                 use_repa=False
-                 ):
+                num_layers=24, gradient_checkpointing=True, 
+                class_dropout_prob=0.1, use_coord_encoding=True, 
+                version=2, pe_freq=20, mixed_precision='bf16',
+                use_dit_like_pe=False, face_cond=False, face_bin=None,
+                use_rmsnorm=False,
+                use_repa=False,
+                is_latent=False
+                ):
         super().__init__()
-
         input_dim = 3 if version > 1 else 9
         self.version = version
         self.use_coord_encoding = use_coord_encoding
         self.hidden_size = hidden_dim
         self.use_repa = use_repa
+        self.is_latent = is_latent
+        self.use_dit_like_pe = use_dit_like_pe
+        
         # project input
-        self.x_embedder = XEmbedder(hidden_dim, pe_freq=pe_freq, use_coord_encoding=use_coord_encoding, version=version)
+        self.x_embedder = XEmbedder(hidden_dim, pe_freq=pe_freq, use_coord_encoding=True if is_latent else False, version=version)
+        
         # positional encoding (just use a learnable positional encoding)
         if use_dit_like_pe:
             self.pos_embed = nn.Parameter(torch.randn(1, max_length, hidden_dim) / hidden_dim ** 0.5)
-            self.use_dit_like_pe = True
             print("[WARNING] USE DiT-like POSITIONAL ENCODING")
         else: # default
             print("[INFO] DO NOT USE POSITIONAL ENCODING")
-            self.use_dit_like_pe = False
         
         # timestep encoding
         self.t_embedder = TimestepEmbedder(hidden_dim)
@@ -316,10 +293,11 @@ class DiT(nn.Module):
         # transformer layers
         self.layers = nn.ModuleList([DiTLayer(hidden_dim, num_heads, gradient_checkpointing, mixed_precision=mixed_precision, version=version, use_rmsnorm=use_rmsnorm) for _ in range(num_layers)])
 
-        # project out        
-        modulation_type = "mult" 
-        self.vertex_cross_attn = VertexCrossAttention(
-            modulation_type=modulation_type, hidden_dim=hidden_dim)
+        # project out     
+        if version == 2:    # unused
+            modulation_type = "mult" 
+            self.vertex_cross_attn = VertexCrossAttention(
+                modulation_type=modulation_type, hidden_dim=hidden_dim)
         self.final_layer = FinalLayer(hidden_dim, input_dim, use_rmsnorm=use_rmsnorm) # input_dim: 9 for v2, 3 for v3
         
         if self.use_repa:
@@ -333,7 +311,6 @@ class DiT(nn.Module):
                 )
             )
 
-        
         self.initialize_weights()
     
 
@@ -459,7 +436,6 @@ class FinalLayer(nn.Module):
             nn.Linear(hidden_size, 2 * input_size, bias=True)
         )
 
-    # @torch.compile
     def forward(self, x, c):
         shift, scale = self.adaLN_modulation(c).chunk(2, dim=1)
         x = modulate(self.norm_final(x), shift, scale)
@@ -468,7 +444,6 @@ class FinalLayer(nn.Module):
 
 
 if __name__ == '__main__':
-    import kiui
     from kiui.nn.utils import count_parameters
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -494,14 +469,6 @@ if __name__ == '__main__':
         return y
     
     model_foward(x)
-            # kiui.lo(y)
-            # mem_free, mem_total = torch.cuda.mem_get_info()
-            # print(f'[INFO] mem forward: {(mem_total-mem_free)/1024**3:.2f}/{mem_total/1024**3:.2f}G')
-            # # test backward
-            # loss = y.mean()
-            # loss.backward()
-            # mem_free, mem_total = torch.cuda.mem_get_info()
-            # print(f'[INFO] mem backward: {(mem_total-mem_free)/1024**3:.2f}/{mem_total/1024**3:.2f}G')
 
     def test_eq_attn(x):
         # 只permute face

@@ -6,14 +6,15 @@ data:
   fid_reference_file: 'path/to/your/VIRTUAL_imagenet256_labeled.npz'
 
   # recommend to use default settings
-  image_size: 256
-  num_classes: 1000
   num_workers: 8
-  latent_norm: true
-  latent_multiplier: 1.0
   do_dataset_normalize: False # should DONOT use normalization!!!!!
   noise_sort: 'random'
   num_bins: 256 # unused in regression decoder
+  use_rot_aug: false
+  use_scale_aug: false
+  use_repa: false
+  use_permut_aug: false
+
 
 vae:
   latent_channels: 3
@@ -33,7 +34,6 @@ model:
   hidden_dim: 768
   num_heads: 12
   max_length: 800
-  input_dim: 9
   num_layers: 12
   gradient_checkpointing: False
   use_coord_encoding: True
@@ -43,20 +43,19 @@ model:
   use_dit_like_pe: False
   face_cond: True
   face_bin: 10
+  is_latent: True
+  is_overfit: True
 
 # recommend to use default settings
 train:
   max_steps: 400000
-  global_batch_size: 48
+  global_batch_size: 16 # 8*8
   global_seed: 0
   output_dir: 'output'
   exp_name: 'ldm'
   ckpt: null
   log_every: 100
   ckpt_every: 10000 # 100 for debug
-  use_rot_aug: false
-  use_scale_aug: false
-  use_repa: false
   
 optimizer:
   lr: 0.0002

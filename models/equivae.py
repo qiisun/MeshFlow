@@ -144,7 +144,7 @@ class Model(nn.Module):
         super().__init__()
         self.model_type = model_type
         self.decoder_type = decoder_type
-        
+        self.use_dit_like_pe = use_dit_like_pe
         self.kl_weight = 1e-6
         self.use_l1_loss = True
 
@@ -159,11 +159,6 @@ class Model(nn.Module):
         # positional encoding (just use a learnable positional encoding)
         if use_dit_like_pe:
             self.pos_embed = nn.Parameter(torch.randn(1, max_length, hidden_dim) / hidden_dim ** 0.5)
-            self.use_dit_like_pe = True
-            print("[WARNING] USE DiT-like POSITIONAL ENCODING")
-        else: # default
-            print("[INFO] DO NOT USE POSITIONAL ENCODING")
-            self.use_dit_like_pe = False
         
         # timestep encoding
         self.face_cond = face_cond
@@ -278,7 +273,12 @@ def compute_face_normals(vertices):
     """
     计算三角形面的法向量
     vertices: [B, N, 9] (每个面3个顶点，平铺)
-    return: [B, N, 3] (归一化的法向量)
+    return: [B, N, 3] (归一化的法向# The above code is a comment in Python. Comments are used to provide
+    # explanations or notes within the code for better understanding. In
+    # Python, comments start with the `#` symbol and everything after the `#`
+    # on that line is considered a comment and is ignored by the Python
+    # interpreter.
+    量)
     """
     B, N, _ = vertices.shape
     tris = vertices.view(B, N, 3, 3)

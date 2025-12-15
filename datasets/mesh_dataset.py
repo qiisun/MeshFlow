@@ -85,7 +85,7 @@ def sort_triangle_soup(triangle_soup: np.ndarray):
     # sort face's based on vertices 
     triangle_soup_sorted_id = np.lexsort(v_sorted_triangle_soup.transpose(1, 2, 0).reshape(9, N)[::-1], axis=-1) # [N]
     triangle_soup_sorted = v_sorted_triangle_soup[triangle_soup_sorted_id] # [N, 3, 3]
-   
+
     # Back to original shape
     triangle_soup_sorted = triangle_soup_sorted.reshape(*orig_shape)
     return triangle_soup_sorted
@@ -105,17 +105,18 @@ def rotate_mesh_with_normal(vertices):
 
 class ObjaverseDataset(Dataset):
     def __init__(self, data_pth, 
-                 noise_sort='ot',
-                 training=True,
-                 do_dataset_normalize=True,
-                 use_custom_prior=False,
-                 use_decimated_dataset=False,
-                 max_face_length=800, 
-                 vae=False,
-                 overfit=False,
-                 use_rot_aug=False,
-                 use_scale_aug=False,
-                 use_repa=False):
+                noise_sort='ot',
+                training=True,
+                do_dataset_normalize=True,
+                use_custom_prior=False,
+                use_decimated_dataset=False,
+                max_face_length=800, 
+                vae=False,
+                overfit=False,
+                use_rot_aug=False,
+                use_scale_aug=False,
+                use_repa=False,
+                use_permut_aug=True):
         
         self.vae = vae
         self.training = training
@@ -127,6 +128,7 @@ class ObjaverseDataset(Dataset):
         self.use_scale_aug = use_scale_aug 
         self.noise_sort = noise_sort 
         self.use_repa = use_repa
+        self.use_permut_aug = use_permut_aug
 
         if data_pth == 'all':
             self.dataset_paths = [
@@ -195,7 +197,7 @@ class ObjaverseDataset(Dataset):
         
         if self.training and overfit:
             print("[INFO] Overfit mode enabled: Duplicating dataset.")
-            self.data = self.data * 100
+            self.data = self.data[:1] * 1000  # Overfit mode for debugging
 
         print(f"Total Combined Dataset Size: {len(self.data)}")
         
@@ -268,6 +270,8 @@ class ObjaverseDataset(Dataset):
         if shuffle_face:
             perm_idx = np.random.permutation(N)
             triangle_soup = triangle_soup[perm_idx]
+        else:
+            perm_idx = np.arange(N)
         if shuffle_vertex:
             all_perm = np.array([[0,1,2], [1,2,0], [2,0,1]])
             perm = np.random.randint(0,3, size=(triangle_soup.shape[0],))
@@ -324,7 +328,7 @@ class ObjaverseDataset(Dataset):
             if vertices is None:
                 # sample another data
                 return self.__getitem__(np.random.randint(0, len(self.data)))
-            coords, perm_idx = self.tokenize_mesh(vertices, faces) # [N, 3, 3] FIXME: shuffle faces/vertices
+            coords, perm_idx = self.tokenize_mesh(vertices, faces, shuffle_face=self.use_permut_aug, shuffle_vertex=self.use_permut_aug) # [N, 3, 3] FIXME: shuffle faces/vertices
             if self.do_dataset_normalize and (not self.vae):
                 coords = coords / self.std
             

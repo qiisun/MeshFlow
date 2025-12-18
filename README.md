@@ -74,6 +74,11 @@ mkdir objaverse
 mv objaverse_occ_v5_ids objaverse
 mv split objaverse
 
+
+wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/shapenet-cls.tar.gz
+tar xf shapenet-cls.tar.gz
+rm shapenet-cls.tar.gz
+
 cd ..
 ```
 Then you should modify the `configs/vae.yaml`.

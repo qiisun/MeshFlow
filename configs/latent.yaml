@@ -2,7 +2,7 @@ ckpt_path: 'path/to/your/checkpoint.pt'
 
 data:
   valid_path: 'debug/valid'
-  data_path: './downloaded_data/objaverse'
+  data_path: './downloaded_data/shapenet-03636649'
   fid_reference_file: 'path/to/your/VIRTUAL_imagenet256_labeled.npz'
 
   # recommend to use default settings
@@ -10,7 +10,7 @@ data:
   do_dataset_normalize: False # should DONOT use normalization!!!!!
   noise_sort: 'random'
   num_bins: 256 # unused in regression decoder
-  use_rot_aug: false
+  use_rot_aug: true
   use_scale_aug: false
   use_repa: false
   use_permut_aug: false
@@ -48,13 +48,13 @@ model:
 # recommend to use default settings
 train:
   max_steps: 400000
-  global_batch_size: 168 # 7*28 for debug
+  global_batch_size: 192 # 7*24 for debug
   global_seed: 0
   output_dir: 'output'
   exp_name: 'ldm'
   ckpt: null
   log_every: 100
-  ckpt_every: 10000 # 100 for debug
+  ckpt_every: 100 # 100 for debug
   
 optimizer:
   lr: 0.0002

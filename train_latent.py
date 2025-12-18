@@ -168,7 +168,7 @@ def do_train(train_config, accelerator):
 
         valid_loader = DataLoader(
             valid_dataset,
-            batch_size=1, # batch_size_per_gpu,
+            batch_size=batch_size_per_gpu,
             shuffle=False,
             num_workers=train_config['data']['num_workers'],
             pin_memory=True,

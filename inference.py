@@ -100,7 +100,6 @@ def do_sample_simple(model, valid_loader,
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
             # 采样结果也是双倍的
             samples = sample_fn(z_in, model_unwrapped.forward_with_cfg, **sample_kwargs)[-1]
-            # 只取 Conditional 分支 (前 bs 个)
             samples = samples[:bs]
 
         images.append(samples) # 可以选择只存一部分以节省内存

@@ -98,13 +98,13 @@ bash tools/run_trainvae.sh configs/vae_cls.yaml # classification loss
 # eval auto-encoder (L1 loss)
 mkdir -p output/vae_rms/checkpoints
 cd output/vae_rms/checkpoints
-wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/vae_ckpts/0080000.pt
+wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/vae_ckpts/0130000.pt
 cd ../../..
 
 CUDA_VISIBLE_DEVICES=6, \
 python eval_vae.py \
   --config configs/vae.yaml \
-  --checkpoint output/vae_rms/checkpoints/0080000.pt \
+  --checkpoint output/vae_rms/checkpoints/0130000.pt \
   --output_dir output/vae_rms/eval_samples \
   --num_save 40
 ```

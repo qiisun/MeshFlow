@@ -151,7 +151,7 @@ class ObjaverseDataset(Dataset):
                 continue
 
             split = np.load(split_path, allow_pickle=True)['npz_list'].tolist()
-            split_uids = set([item['uid'] for item in split]) # 转为set加速查询
+            split_uids = set([item['uid'] for item in split])
             print(f"Loaded split {split_filename}, count: {len(split_uids)}")
 
             folder_prefix = "objaverse_occ_v5_ids"
@@ -196,8 +196,9 @@ class ObjaverseDataset(Dataset):
                 self.data.append(cur_data)
         
         if self.training and overfit:
-            print("[INFO] Overfit mode enabled: Duplicating dataset.")
-            self.data = self.data[:1] * 1000  # Overfit mode for debugging
+            from termcolor import colored
+            print(colored("[INFO] Overfit mode enabled: Duplicating dataset.", "yellow"))
+            # self.data = self.data[:1] * 1000  # Overfit mode for debugging
 
         print(f"Total Combined Dataset Size: {len(self.data)}")
         
@@ -282,69 +283,66 @@ class ObjaverseDataset(Dataset):
         return triangle_soup, perm_idx # [N, 3, 3]
     
     def __getitem__(self, idx):
-        try:
-            data = self.data[idx]
-            vertices = data['vertices']
-            faces = data['faces']
-            faces_num = data['faces_num']
-            
-            if self.use_repa:
-                f_feature = data['f_feature']  # [f, feat_dim]
-                assert len(f_feature) == len(faces)
-            assert vertices.shape[1] == 3 and faces.shape[1] == 3
-            data_dict = {}
-            if 'category' in data:
-                data_dict['uid'] = data['category']+'_'+data['uid']
-            else:
-                data_dict['uid'] = data['uid']
-            # scale x, y, z
-            bounds = np.array([vertices.min(axis=0), vertices.max(axis=0)])
-            vertices = vertices - (bounds[0] + bounds[1])[None, :] / 2
-            vertices = vertices / (bounds[1] - bounds[0]).max()
-            # aligned from now on
-            if self.use_scale_aug:
-                x_lims = (0.75, 1.25)
-                y_lims = (0.75, 1.25)
-                z_lims = (0.75, 1.25)
+        data = self.data[idx]
+        vertices = data['vertices']
+        faces = data['faces']
+        faces_num = data['faces_num']
+        
+        if self.use_repa:
+            f_feature = data['f_feature']  # [f, feat_dim]
+            assert len(f_feature) == len(faces)
+        assert vertices.shape[1] == 3 and faces.shape[1] == 3
+        data_dict = {}
+        if 'category' in data:
+            data_dict['uid'] = data['category']+'_'+data['uid']
+        else:
+            data_dict['uid'] = data['uid']
+        # scale x, y, z
+        bounds = np.array([vertices.min(axis=0), vertices.max(axis=0)])
+        vertices = vertices - (bounds[0] + bounds[1])[None, :] / 2
+        vertices = vertices / (bounds[1] - bounds[0]).max()
+        # aligned from now on
+        if self.use_scale_aug:
+            x_lims = (0.75, 1.25)
+            y_lims = (0.75, 1.25)
+            z_lims = (0.75, 1.25)
 
-                x = np.random.uniform(low=x_lims[0], high=x_lims[1], size=(1,))
-                y = np.random.uniform(low=y_lims[0], high=y_lims[1], size=(1,))
-                z = np.random.uniform(low=z_lims[0], high=z_lims[1], size=(1,))
-                vertices = np.stack([vertices[:, 0] * x, vertices[:, 1] * y, vertices[:, 2] * z], axis=-1)
+            x = np.random.uniform(low=x_lims[0], high=x_lims[1], size=(1,))
+            y = np.random.uniform(low=y_lims[0], high=y_lims[1], size=(1,))
+            z = np.random.uniform(low=z_lims[0], high=z_lims[1], size=(1,))
+            vertices = np.stack([vertices[:, 0] * x, vertices[:, 1] * y, vertices[:, 2] * z], axis=-1)
 
-            # normalize x, y, z
-            bounds = np.array([vertices.min(axis=0), vertices.max(axis=0)])
-            vertices = vertices - (bounds[0] + bounds[1])[None, :] / 2
-            if self.use_rot_aug:
-                vertices = rotate_mesh_with_normal(vertices)
+        # normalize x, y, z
+        bounds = np.array([vertices.min(axis=0), vertices.max(axis=0)])
+        vertices = vertices - (bounds[0] + bounds[1])[None, :] / 2
+        if self.use_rot_aug:
+            vertices = rotate_mesh_with_normal(vertices)
 
-            # scale to -0.5 to 0.5
-            bounds = np.array([vertices.min(axis=0), vertices.max(axis=0)])
-            vertices = vertices - (bounds[0] + bounds[1])[None, :] / 2
-            vertices = vertices / (bounds[1] - bounds[0]).max()
-            vertices = vertices.clip(-0.5, 0.5)
-            assert vertices.min() >= -0.5 and vertices.max() <= 0.5
-            vertices, faces = self.sort_vertices_and_faces(vertices, faces)
-            if vertices is None:
-                # sample another data
-                return self.__getitem__(np.random.randint(0, len(self.data)))
-            coords, perm_idx = self.tokenize_mesh(vertices, faces, shuffle_face=self.use_permut_aug, shuffle_vertex=self.use_permut_aug) # [N, 3, 3] FIXME: shuffle faces/vertices
-            if self.do_dataset_normalize and (not self.vae):
-                coords = coords / self.std
-            
-            if not self.vae:    
-                coords, noise = self.sample_noise(coords) # [N, 3, 3], [N, 3, 3]
-                data_dict['noise'] = noise.reshape(faces_num, -1)
-                if self.use_repa:
-                    data_dict['f_feature'] = f_feature[perm_idx]
-            
-            data_dict['coords'] = coords.reshape(faces_num, -1) 
-            data_dict['num_faces'] = faces_num
-            data_dict['len'] = faces_num
-
-            return data_dict
-        except Exception as e:
+        # scale to -0.5 to 0.5
+        bounds = np.array([vertices.min(axis=0), vertices.max(axis=0)])
+        vertices = vertices - (bounds[0] + bounds[1])[None, :] / 2
+        vertices = vertices / (bounds[1] - bounds[0]).max()
+        vertices = vertices.clip(-0.5, 0.5)
+        assert vertices.min() >= -0.5 and vertices.max() <= 0.5
+        vertices, faces = self.sort_vertices_and_faces(vertices, faces)
+        if vertices is None:
+            # sample another data
             return self.__getitem__(np.random.randint(0, len(self.data)))
+        coords, perm_idx = self.tokenize_mesh(vertices, faces, shuffle_face=self.use_permut_aug, shuffle_vertex=self.use_permut_aug) # [N, 3, 3] FIXME: shuffle faces/vertices
+        if self.do_dataset_normalize and (not self.vae):
+            coords = coords / self.std
+        
+        if not self.vae:    
+            coords, noise = self.sample_noise(coords) # [N, 3, 3], [N, 3, 3]
+            data_dict['noise'] = noise.reshape(faces_num, -1)
+            if self.use_repa:
+                data_dict['f_feature'] = f_feature[perm_idx]
+        
+        data_dict['coords'] = coords.reshape(faces_num, -1) 
+        data_dict['num_faces'] = faces_num
+        data_dict['len'] = faces_num
+
+        return data_dict
     
 def collate_fn(batch, max_seq_length=800):
 

@@ -91,41 +91,33 @@ class LabelEmbedder(nn.Module):
         return embeddings
 
 class TimestepEmbedder(nn.Module):
-    """
-    Embeds scalar timesteps into vector representations.
-    """
     def __init__(self, hidden_size, frequency_embedding_size=256):
         super().__init__()
         self.mlp = nn.Sequential(
-            nn.Linear(frequency_embedding_size, hidden_size, bias=True),
+            nn.Linear(frequency_embedding_size, hidden_size),
             nn.SiLU(),
-            nn.Linear(hidden_size, hidden_size, bias=True),
+            nn.Linear(hidden_size, hidden_size),
         )
         self.frequency_embedding_size = frequency_embedding_size
 
     @staticmethod
     def timestep_embedding(t, dim, max_period=10000):
-        """
-        Create sinusoidal timestep embeddings.
-        :param t: a 1-D Tensor of N indices, one per batch element.
-                          These may be fractional.
-        :param dim: the dimension of the output.
-        :param max_period: controls the minimum frequency of the embeddings.
-        :return: an (N, D) Tensor of positional embeddings.
-        """
-        # https://github.com/openai/glide-text2im/blob/main/glide_text2im/nn.py
         half = dim // 2
         freqs = torch.exp(
-            -math.log(max_period) * torch.arange(start=0, end=half, dtype=torch.float32) / half
-        ).to(device=t.device)
-        args = t[:, None].float() * freqs[None]
+            -math.log(max_period) * torch.arange(start=0, end=half) / half
+        ).to(t.device)
+        args = t[:, None] * freqs[None]
         embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
         if dim % 2:
-            embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
+            embedding = torch.cat(
+                [embedding, torch.zeros_like(embedding[:, :1])], dim=-1
+            )
         return embedding
 
     def forward(self, t):
-        t_freq = self.timestep_embedding(t, self.frequency_embedding_size)
+        t_freq = self.timestep_embedding(t, self.frequency_embedding_size).to(
+            dtype=next(self.parameters()).dtype
+        )
         t_emb = self.mlp(t_freq)
         return t_emb
 
@@ -272,7 +264,7 @@ class DiT(nn.Module):
         self.use_dit_like_pe = use_dit_like_pe
         
         # project input
-        self.x_embedder = XEmbedder(hidden_dim, pe_freq=pe_freq, use_coord_encoding=True if is_latent else False, version=version)
+        self.x_embedder = XEmbedder(hidden_dim, pe_freq=pe_freq, use_coord_encoding=False if is_latent else True, version=version)
         
         # positional encoding (just use a learnable positional encoding)
         if use_dit_like_pe:
@@ -294,10 +286,6 @@ class DiT(nn.Module):
         self.layers = nn.ModuleList([DiTLayer(hidden_dim, num_heads, gradient_checkpointing, mixed_precision=mixed_precision, version=version, use_rmsnorm=use_rmsnorm) for _ in range(num_layers)])
 
         # project out     
-        if version == 2:    # unused
-            modulation_type = "mult" 
-            self.vertex_cross_attn = VertexCrossAttention(
-                modulation_type=modulation_type, hidden_dim=hidden_dim)
         self.final_layer = FinalLayer(hidden_dim, input_dim, use_rmsnorm=use_rmsnorm) # input_dim: 9 for v2, 3 for v3
         
         if self.use_repa:
@@ -358,14 +346,19 @@ class DiT(nn.Module):
         # mask: [B, N]
         # return: [B, N, C], updated hidden states
         B, N, _ = x.shape
+        
         if self.version > 1:
-            x, x_ = self.x_embedder(x) # [B, N, C], [B*N, 3, C]
+            _, x = self.x_embedder(x)
+            x = x.view(B, N*3, -1) # [B, 3*N, C]
         else:
             x = self.x_embedder(x) # [B, N, C]
             
         # positional encoding
         if self.use_dit_like_pe: 
-            x = x + self.pos_embed[:, :N, :]
+            if self.version > 1:
+                x = x + self.pos_embed[:, :N*3, :]
+            else:
+                x = x + self.pos_embed[:, :N, :]
 
         # only timestep encoding
         t = self.t_embedder(t)
@@ -376,18 +369,15 @@ class DiT(nn.Module):
             c = t 
 
         # transformer layers
-        if self.version > 2: # v3
-            x = x_.reshape(B, N*3, -1) # [B, N*3, C]
+        # if self.version > 2: # v3
+        #     x = x.reshape(B, N*3, -1) # [B, N*3, C]
+        # else:
+        #     x = x
             
         for layer in self.layers:
             x = layer(x, c, mask=mask)
         
-        # project out
-        if self.version == 2:
-            x = x.view(B*N, 1, self.hidden_size)
-            x = self.vertex_cross_attn(x_, x) # [B*N, 3, C]
-            x = x.view(B, N*3, -1)
-            
+        # project out            
         x = self.final_layer(x, c) # v2: [B, N*3, 3]
         
         if self.version > 1:

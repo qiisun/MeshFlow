@@ -7,10 +7,6 @@ data:
 
   # recommend to use default settings
   num_workers: 8
-<<<<<<< HEAD
-  latent_norm: true
-=======
->>>>>>> 1518463c18ffa0c772d8cb765a61d6adc6259713
   do_dataset_normalize: False # should DONOT use normalization!!!!!
   noise_sort: 'random'
   num_bins: 256 # unused in regression decoder
@@ -18,7 +14,7 @@ data:
   use_scale_aug: false
   use_repa: false
   use_permut_aug: false
-
+  is_overfit: False
 
 vae:
   latent_channels: 3
@@ -41,25 +37,24 @@ model:
   num_layers: 12
   gradient_checkpointing: False
   use_coord_encoding: True
-  version: 3
+  version: 1
   pe_freq: 20
   mixed_precision:
   use_dit_like_pe: False
   face_cond: True
   face_bin: 10
   is_latent: True
-  is_overfit: True
 
 # recommend to use default settings
 train:
   max_steps: 400000
-  global_batch_size: 16 # 8*8
+  global_batch_size: 72 # 8*8
   global_seed: 0
   output_dir: 'output'
   exp_name: 'ldm'
   ckpt: null
   log_every: 100
-  ckpt_every: 10000 # 100 for debug
+  ckpt_every: 5000 # 100 for debug
   
 optimizer:
   lr: 0.0002
@@ -72,7 +67,7 @@ transport:
   loss_weight: null
   sample_eps: null
   train_eps: null
-  use_cosine_loss: true
+  use_cosine_loss: False
   use_lognorm: true
   use_jit: false
 

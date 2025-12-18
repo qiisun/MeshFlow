@@ -186,10 +186,11 @@ class Transport:
         """
         if model_kwargs == None:
             model_kwargs = {}
-        
+        else:
+            mask = model_kwargs.get('mask', None)
         t, x1 = self.sample(x1, sp_timesteps, shifted_mu)
-        t, xt, ut = self.path_sampler.plan(t, x0, x1)
-        model_output = model(xt, t, **model_kwargs)
+        t, xt, ut = self.path_sampler.plan(t, x0, x1) # ut=x1-x0; (1-t)*x0+t*x1
+        model_output = model(xt, t, **model_kwargs) 
         B, *_, C = xt.shape
         assert model_output.size() == (B, *xt.size()[1:-1], C)
         if self.use_jit:
@@ -200,7 +201,7 @@ class Transport:
         terms['pred'] = model_output
         terms['t'] = t  # Include timesteps for logging purposes
         if self.model_type == ModelType.VELOCITY:
-            terms['loss'] = mean_flat(((model_output - ut) ** 2))
+            terms['loss'] = mean_flat(((model_output - ut) ** 2)[mask]) # FIXME: Mask loss
             if self.use_cosine_loss:
                 terms['cos_loss'] = mean_flat(1 - th.nn.functional.cosine_similarity(model_output, ut, dim=1))
         else: 

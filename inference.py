@@ -4,32 +4,28 @@ Sampling Scripts of LightningDiT.
 by Maple (Jingfeng Yao) from HUST-VL
 """
 
-import os, math, json, pickle, logging, argparse, yaml, torch, numpy as np
+import os, math, argparse, yaml, torch, numpy as np
 from time import time, strftime
 from glob import glob
 from copy import deepcopy
-from collections import OrderedDict
 from PIL import Image
 from tqdm import tqdm
 import torch.distributed as dist
 from accelerate import Accelerator
-from torch.utils.data import DataLoader
-from torch.nn.parallel import DistributedDataParallel as DDP
-import torchvision
 # local imports
 from transport import create_transport, Sampler
 from datasets.mesh_dataset import save_mesh
-
 @torch.no_grad()
 def do_sample_simple(model, valid_loader, 
                      device, transport, 
                      train_config, accelerator,
                      train_steps, save_dir,
-                     vae = None, latent_scale_factor=0.1666):
+                     vae=None, latent_scale_factor=0.1666):
+    # 1. 准备采样器
     sampler = Sampler(transport)
-    mode = "ODE" # train_config['sample']['mode']
+    mode = "ODE" 
     timestep_shift = 0
-    cfg_scale = 9.0
+    cfg_scale = 1.0
     
     save_dir_mesh = f'{save_dir}/mesh_{train_steps}step'
     os.makedirs(save_dir_mesh, exist_ok=True)
@@ -44,49 +40,109 @@ def do_sample_simple(model, valid_loader,
             timestep_shift=timestep_shift,
         )
     
+    # 2. 准备模型和 Null Token
+    # 注意：如果外部传入的是 model.module，unwrap_model 也是可以直接工作的
+    model_unwrapped = accelerator.unwrap_model(model)
+    null_token = model_unwrapped.y_embedder.num_classes
+
+    total_loss = 0.0
+    count = 0
     images = []
-    for i, data in tqdm(enumerate(valid_loader), desc="Generating Demo Samples"):
-        # FIXME: currently only support batch_size=1
-        x1 = data['tokens'].to(device)
-        x0 = data['noise'].to(device) # presampled noise
-        y = data['num_faces'].to(device)
-        mask = data['masks'].to(device)
 
-        model_kwargs = dict(y=y, mask=mask)
-        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-            loss_dict = transport.training_losses(model, x1, x0, model_kwargs)
-
-        z = torch.randn_like(x0, device=device) # random sample noise
-        z = torch.cat([z, z], 0)
-        model_unwarp = accelerator.unwrap_model(model)
-        y_null = torch.tensor([model_unwarp.uncond_y] * 1, device=device) #TODO: pay attention; we are not 1000 classes
-        y = torch.cat([y, y_null], 0)
-        model_kwargs = dict(y=y, cfg_scale=cfg_scale, mask=mask)
-        model_fn = model_unwarp.forward_with_cfg
-        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-            # z: [2*bs, N, 9]
-            # y: [2*bs]
-            # mask: [bs, N], no repeat
-            samples = sample_fn(z, model_fn, **model_kwargs)[-1]
-        images.append(samples)
+    for i, data in tqdm(enumerate(valid_loader), desc=f"Evaluating step {train_steps}"):
+        x1 = data['tokens'].to(device) # [bs, N, 9]
+        bs = x1.shape[0]
         
-        # save meshes
+        y = data['num_faces'].to(device)  # [bs]
+        mask = data['masks'].to(device)   # [bs, N]
+
+        train_kwargs = dict(y=y, mask=mask)
+        
+        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+            posterior = vae.encode(x1, cond=y, mask=mask)
+            z = posterior.sample()
+            x_latents = z * latent_scale_factor # [bs, 3*N, 3]
+            x_latents = x_latents.view(x_latents.shape[0], -1, 3, vae.latent_channels).reshape(x_latents.shape[0], -1, 9) # [bs, N, 9]
+
+            noise = torch.randn_like(x_latents) # [bs, N, 9]
+            loss_dict = loss_dict = transport.training_losses(
+                model, 
+                x1=x_latents, 
+                x0=noise, 
+                model_kwargs=train_kwargs
+            )
+            
+            # 聚合 Loss (MSE + Cosine)
+            if 'cos_loss' in loss_dict:
+                batch_loss = loss_dict["loss"].mean() + loss_dict["cos_loss"].mean()
+            else:
+                batch_loss = loss_dict["loss"].mean()
+            
+            # 累加 Loss
+            total_loss += batch_loss.item()
+            count += 1
+             
+        # --- Part B: 采样生成 (Sampling) ---
+        # 1. 准备噪声
+        z = torch.randn_like(x1, device=device) # [bs, N, 9]
+
+        # 2. 构造 CFG 双倍输入
+        z_in = torch.cat([z, z], dim=0) # [2bs, N, 9]
+        
+        y_null = torch.full_like(y, fill_value=null_token)
+        y_in = torch.cat([y, y_null], dim=0) # [2bs]
+
+        mask_in = torch.cat([mask, mask], dim=0) # [2bs, N]
+
+        # 3. 采样参数
+        sample_kwargs = dict(y=y_in, cfg_scale=cfg_scale, mask=mask_in)
+
+        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+            # 采样结果也是双倍的
+            samples = sample_fn(z_in, model_unwrapped.forward_with_cfg, **sample_kwargs)[-1]
+            # 只取 Conditional 分支 (前 bs 个)
+            samples = samples[:bs]
+
+        images.append(samples) # 可以选择只存一部分以节省内存
+
+        # --- Part C: 保存 Mesh (每批只存第1个样本以供预览) ---
+        # 这里的 samples 已经是 [bs, N, 9]
+        
+        sample_to_save = samples[0] # [N, 9]
+        
         if vae is None:
-            # normalize the [-0.5, 0.5] to [-1.67, 1.67] in pixel diffusion code
-            save_mesh(samples[0].cpu().numpy(), f'{save_dir_mesh}/{i:03d}.obj', max_val=1.67)
+            # Direct save
+            # normalize the [-0.5, 0.5] to [-1.67, 1.67]
+            save_mesh(sample_to_save.cpu().numpy(), f'{save_dir_mesh}/{i:03d}.obj', max_val=1.67)
         else:
-            samples = samples.reshape(samples.shape[0],-1,3)[:1] # [1, 3*N, 3]
+            # VAE Decode
+            # 必须注意：VAE 的输入需要 Batch 维度，且 Condition/Mask 也要切片匹配
+            
+            # 1. 取出当前 batch 第一个样本，并保持维度 [1, N, 9]
+            # 注意：你的原始代码做了 reshape: samples.reshape(samples.shape[0],-1,3)[:1]
+            # 这意味着将 9通道 转为 3x3 坐标? 请确保这符合你的 VAE 输入定义
+            # 假设 VAE 期望 [Batch, Sequence, Channels]
+            
+            sample_input = samples[:1].reshape(1, -1, 3) # [1, 3*N, 3] 或者根据你的 VAE 需求调整
+            
+            # 2. 对应的 Condition 和 Mask 也要切片成 [1, ...]
+            cond_input = y[:1]      # [1]
+            mask_input = mask[:1]   # [1, N]
+
             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-                sample_decoded = vae.decode(samples / latent_scale_factor, cond=data['num_faces'].to(device), mask=mask)
+                sample_decoded = vae.decode(
+                    sample_input / latent_scale_factor, 
+                    cond=cond_input, 
+                    mask=mask_input
+                )
+            
+            # 保存
             save_mesh(sample_decoded[0].cpu().float().numpy(), f'{save_dir_mesh}/{i:03d}.obj', max_val=0.5)
-    
-    # update validation loss
-    if 'cos_loss' in loss_dict:
-        mse_loss = loss_dict["loss"].mean()
-        loss = loss_dict["cos_loss"].mean() + mse_loss
-    else:
-        loss = loss_dict["loss"].mean()
-    return loss
+
+    # 计算平均 Loss
+    avg_loss = total_loss / count if count > 0 else 0.0
+    return avg_loss
+
 
 # sample function
 def do_sample(train_config, accelerator, ckpt_path=None, cfg_scale=None, model=None, vae=None, demo_sample_mode=False):

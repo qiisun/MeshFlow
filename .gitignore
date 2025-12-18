@@ -7,10 +7,4 @@ tools/run_trainvae_*
 tools/run_train*
 
 tools/update.py
-<<<<<<< HEAD
 thirdparty/
-=======
-
-
-third_party/
->>>>>>> d04f3dfb61278b7925f3e8ed539ca1d8dac2ffac

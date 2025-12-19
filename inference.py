@@ -20,12 +20,11 @@ def do_sample_simple(model, valid_loader,
                      device, transport, 
                      train_config, accelerator,
                      train_steps, save_dir,
-                     vae=None, latent_scale_factor=0.1666):
-    # 1. 准备采样器
+                     vae=None, latent_scale_factor=0.1666,
+                     cfg_scale = 1.0):
     sampler = Sampler(transport)
     mode = "ODE" 
     timestep_shift = 0
-    cfg_scale = 1.0
     
     save_dir_mesh = f'{save_dir}/mesh_{train_steps}step'
     os.makedirs(save_dir_mesh, exist_ok=True)
@@ -40,8 +39,6 @@ def do_sample_simple(model, valid_loader,
             timestep_shift=timestep_shift,
         )
     
-    # 2. 准备模型和 Null Token
-    # 注意：如果外部传入的是 model.module，unwrap_model 也是可以直接工作的
     model_unwrapped = accelerator.unwrap_model(model)
     null_token = model_unwrapped.y_embedder.num_classes
 
@@ -86,7 +83,6 @@ def do_sample_simple(model, valid_loader,
         # 1. 准备噪声
         z = torch.randn_like(x1, device=device) # [bs, N, 9]
 
-        # 2. 构造 CFG 双倍输入
         z_in = torch.cat([z, z], dim=0) # [2bs, N, 9]
         
         y_null = torch.full_like(y, fill_value=null_token)
@@ -110,21 +106,9 @@ def do_sample_simple(model, valid_loader,
         sample_to_save = samples[0] # [N, 9]
         
         if vae is None:
-            # Direct save
-            # normalize the [-0.5, 0.5] to [-1.67, 1.67]
             save_mesh(sample_to_save.cpu().numpy(), f'{save_dir_mesh}/{i:03d}.obj', max_val=1.67)
-        else:
-            # VAE Decode
-            # 必须注意：VAE 的输入需要 Batch 维度，且 Condition/Mask 也要切片匹配
-            
-            # 1. 取出当前 batch 第一个样本，并保持维度 [1, N, 9]
-            # 注意：你的原始代码做了 reshape: samples.reshape(samples.shape[0],-1,3)[:1]
-            # 这意味着将 9通道 转为 3x3 坐标? 请确保这符合你的 VAE 输入定义
-            # 假设 VAE 期望 [Batch, Sequence, Channels]
-            
-            sample_input = samples[:1].reshape(1, -1, 3) # [1, 3*N, 3] 或者根据你的 VAE 需求调整
-            
-            # 2. 对应的 Condition 和 Mask 也要切片成 [1, ...]
+        else:            
+            sample_input = samples[:1].reshape(1, -1, 3)
             cond_input = y[:1]      # [1]
             mask_input = mask[:1]   # [1, N]
 
@@ -134,11 +118,8 @@ def do_sample_simple(model, valid_loader,
                     cond=cond_input, 
                     mask=mask_input
                 )
-            
-            # 保存
             save_mesh(sample_decoded[0].cpu().float().numpy(), f'{save_dir_mesh}/{i:03d}.obj', max_val=0.5)
 
-    # 计算平均 Loss
     avg_loss = total_loss / count if count > 0 else 0.0
     return avg_loss
 

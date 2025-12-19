@@ -22,12 +22,11 @@ from time import time
 from glob import glob
 from copy import deepcopy
 from collections import OrderedDict
-
 from models.equidit import DiT
 from models.equivae import AutoencoderKL
 from transport import create_transport
 from accelerate import Accelerator
-from inference import do_sample_simple # You might need to update inference to decode latents
+from inference import do_sample_simple
 
 from datasets.mesh_dataset import ObjaverseDataset, collate_fn
 from functools import partial
@@ -84,6 +83,8 @@ def do_train(train_config, accelerator):
     # --- 3. Create DiT Model (The Second Stage) ---
     from models.dit import DiT_Llama_600M_patch1
     model = DiT_Llama_600M_patch1()
+    num_params = sum(p.numel() for p in model.parameters())
+    print(f"Model Parameters: {num_params / 1e6:.2f} M")
     # model = DiT(
     #     hidden_dim=train_config['model']['hidden_dim'], 
     #     num_heads=train_config['model']['num_heads'],
@@ -252,12 +253,10 @@ def do_train(train_config, accelerator):
             running_loss += loss.item()
             log_steps += 1
             train_steps += 1
-            
             if train_steps % train_config['train']['log_every'] == 0:
                 torch.cuda.synchronize()
                 end_time = time()
                 steps_per_sec = log_steps / (end_time - start_time)
-                
                 avg_loss = torch.tensor(running_loss / log_steps, device=device)
                 dist.all_reduce(avg_loss, op=dist.ReduceOp.SUM)
                 avg_loss = avg_loss.item() / dist.get_world_size()

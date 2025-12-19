@@ -82,14 +82,12 @@ def evaluate(args):
             mask = data['masks'].to(device)
 
             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-                # Deterministic inference (Mode)
                 recon, posterior, z = model(x, cond=y, mask=mask, sample_posterior=True)
-                
                 loss, rec_l, kl_l = loss_vae(
                     x, recon, posterior, mask=mask, 
                     kl_weight=config['train']['kl_weight'],
-                    decoder_type=decoder_type, # 传入类型
-                    num_bins=num_bins          # 传入 bins
+                    decoder_type=decoder_type,
+                    num_bins=num_bins
                 )
 
             total_loss += loss.item()

@@ -2,7 +2,7 @@ ckpt_path: 'path/to/your/checkpoint.pt'
 
 data:
   valid_path: 'debug/valid'
-  data_path: './downloaded_data/shapenet-03636649'
+  data_path: './downloaded_data/shapenet-03001627'
   fid_reference_file: 'path/to/your/VIRTUAL_imagenet256_labeled.npz'
 
   # recommend to use default settings
@@ -54,7 +54,7 @@ train:
   exp_name: 'ldm'
   ckpt: null
   log_every: 100
-  ckpt_every: 100 # 100 for debug
+  ckpt_every: 10000 # 100 for debug
   
 optimizer:
   lr: 0.0002
@@ -67,7 +67,7 @@ transport:
   loss_weight: null
   sample_eps: null
   train_eps: null
-  use_cosine_loss: False
+  use_cosine_loss: True
   use_lognorm: true
   use_jit: false
 

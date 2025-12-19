@@ -91,6 +91,14 @@ bash tools/run_train.sh configs/base.yaml
 ### Train Latent MeshFlow
 ```bash
 bash tools/run_train_latent.sh configs/latent.yaml
+
+CUDA_VISIBLE_DEVICES=6, \
+accelerate launch eval_ldm.py \
+  --config configs/latent.yaml \
+  --ckpt output/ldm/checkpoints/0070000.pt \
+  --out_dir output/ldm \
+  --use_ema \
+  --batch_size 4
 ```
 
 ### Train VAE & Evaluate VAE

@@ -5,6 +5,7 @@ tensorboard_logs/*
 output/
 tools/run_trainvae_*
 tools/run_train*
+!tools/run_train_latent*
 
 tools/update.py
 thirdparty/

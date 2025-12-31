@@ -5,6 +5,7 @@ Trains a DiT to generate VAE latents instead of raw coordinates.
 by Maple (Jingfeng Yao) from HUST-VL
 """
 
+from signal import valid_signals
 import torch
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -83,8 +84,6 @@ def do_train(train_config, accelerator):
     # --- 3. Create DiT Model (The Second Stage) ---
     from models.dit import DiT_Llama_600M_patch1
     model = DiT_Llama_600M_patch1()
-    num_params = sum(p.numel() for p in model.parameters())
-    print(f"Model Parameters: {num_params / 1e6:.2f} M")
     # model = DiT(
     #     hidden_dim=train_config['model']['hidden_dim'], 
     #     num_heads=train_config['model']['num_heads'],
@@ -101,6 +100,9 @@ def do_train(train_config, accelerator):
     #     use_rmsnorm=train_config['model']['use_rmsnorm'] if 'use_rmsnorm' in train_config['model'] else False,
     #     is_latent=train_config['model']['is_latent']
     # )
+    num_params = sum(p.numel() for p in model.parameters())
+    print(f"Model Parameters: {num_params / 1e6:.2f} M")
+
     ema = deepcopy(model).to(device)
 
     # Load DiT weights if resuming or finetuning
@@ -133,15 +135,15 @@ def do_train(train_config, accelerator):
         data_pth=train_config['data']['data_path'],
         training=True,
         noise_sort=train_config['data']['noise_sort'],
-        use_decimated_dataset=False,
-        do_dataset_normalize=False,
-        use_rot_aug=train_config['data']['use_rot_aug'],
-        use_scale_aug=train_config['data']['use_scale_aug'],
-        use_repa=train_config['data']['use_repa'],
-        use_permut_aug=train_config['data']['use_permut_aug'],
-        overfit=train_config['data']['is_overfit']
-
+        use_custom_prior=train_config['data']['use_custom_prior'] if 'use_custom_prior' in train_config['data'] else False,
+        use_decimated_dataset=train_config['data']['use_decimated_dataset'] if 'use_decimated_dataset' in train_config['data'] else False,
+        do_dataset_normalize=train_config['data']['do_dataset_normalize'] if 'do_dataset_normalize' in train_config['data'] else False,
+        vae=False,
+        overfit=train_config['data']['overfit'] if 'overfit' in train_config['data'] else False,
+        use_rot_aug=train_config['data']['use_rot_aug'] if 'use_rot_aug' in train_config['data'] else True,
+        use_scale_aug=train_config['data']['use_scale_aug'] if 'use_scale_aug' in train_config['data'] else True,
     )
+
     
     batch_size_per_gpu = int(np.round(train_config['train']['global_batch_size'] / accelerator.num_processes))
     loader = DataLoader(
@@ -156,15 +158,16 @@ def do_train(train_config, accelerator):
     
     if 'valid_path' in train_config['data']:
         valid_dataset = ObjaverseDataset(
-        data_pth=train_config['data']['data_path'],
-        noise_sort=train_config['data']['noise_sort'],
-        training=False,
-        use_decimated_dataset=False,
-        do_dataset_normalize=False,
-        use_rot_aug=train_config['data']['use_rot_aug'],
-        use_scale_aug=train_config['data']['use_scale_aug'],
-        use_repa=train_config['data']['use_repa'],
-        use_permut_aug=train_config['data']['use_permut_aug']
+            data_pth=train_config['data']['data_path'],
+            training=False,
+            noise_sort=train_config['data']['noise_sort'],
+            use_custom_prior=train_config['data']['use_custom_prior'] if 'use_custom_prior' in train_config['data'] else False,
+            use_decimated_dataset=train_config['data']['use_decimated_dataset'] if 'use_decimated_dataset' in train_config['data'] else False,
+            do_dataset_normalize=train_config['data']['do_dataset_normalize'] if 'do_dataset_normalize' in train_config['data'] else False,
+            vae=False,
+            overfit=train_config['data']['overfit'] if 'overfit' in train_config['data'] else False,
+            use_rot_aug=train_config['data']['use_rot_aug'] if 'use_rot_aug' in train_config['data'] else True,
+            use_scale_aug=train_config['data']['use_scale_aug'] if 'use_scale_aug' in train_config['data'] else True,
         )
 
         valid_loader = DataLoader(

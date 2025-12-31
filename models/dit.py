@@ -343,7 +343,7 @@ def DiT_Llama_600M_patch2(**kwargs):
     return DiT_Llama(patch_size=2, dim=256, n_layers=16, n_heads=32, **kwargs)
 
 def DiT_Llama_600M_patch1(**kwargs):
-    return DiT_Llama(patch_size=1, dim=256, n_layers=16, n_heads=32, in_channels=9, **kwargs)
+    return DiT_Llama(patch_size=1, dim=768, n_layers=12, n_heads=12, in_channels=9, **kwargs)
 
 def DiT_Llama_3B_patch2(**kwargs):
     return DiT_Llama(patch_size=2, dim=3072, n_layers=32, n_heads=32, **kwargs)

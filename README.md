@@ -109,9 +109,10 @@ bash tools/run_trainvae.sh configs/vae_cls.yaml # classification loss
 
 
 # eval auto-encoder (L1 loss)
-mkdir -p output/vae_rms/checkpoints
-cd output/vae_rms/checkpoints
-wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/vae_ckpts/0130000.pt
+mkdir -p output/vae_rms_lamp/checkpoints
+cd output/vae_rms_lamp/checkpoints
+wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/vae_ckpts_1e-3/0036000.pt
+# wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/vae_ckpts/0130000.pt
 cd ../../..
 
 CUDA_VISIBLE_DEVICES=6, \

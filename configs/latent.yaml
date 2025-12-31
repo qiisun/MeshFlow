@@ -1,9 +1,7 @@
 ckpt_path: 'path/to/your/checkpoint.pt'
 
 data:
-  valid_path: 'debug/valid'
-  data_path: './downloaded_data/shapenet-03001627'
-  fid_reference_file: 'path/to/your/VIRTUAL_imagenet256_labeled.npz'
+  data_path: 'downloaded_data/shapenet-03636649'
 
   # recommend to use default settings
   num_workers: 8
@@ -20,8 +18,8 @@ vae:
   latent_channels: 3
   model_type: "equidit"
   use_rmsnorm: True
-  scale_factor: 0.1666 # note: on the evaluation dataset.
-  vae_ckpt: output/vae_rms/checkpoints/0130000.pt
+  scale_factor:  0.740349 # note: on the evaluation dataset.
+  vae_ckpt: output/vae_rms_lamp/checkpoints/0036000.pt
   decoder_type: "reg"
 
 model:
@@ -36,7 +34,7 @@ model:
   max_length: 800
   num_layers: 12
   gradient_checkpointing: False
-  use_coord_encoding: True
+  use_coord_encoding: False # True
   version: 1
   pe_freq: 20
   mixed_precision:
@@ -48,13 +46,13 @@ model:
 # recommend to use default settings
 train:
   max_steps: 400000
-  global_batch_size: 192 # 7*24 for debug
+  global_batch_size: 128 # 7*24 for debug
   global_seed: 0
   output_dir: 'output'
   exp_name: 'ldm'
   ckpt: null
   log_every: 100
-  ckpt_every: 10000 # 100 for debug
+  ckpt_every: 3000 # 100 for debug
   
 optimizer:
   lr: 0.0002
@@ -67,7 +65,7 @@ transport:
   loss_weight: null
   sample_eps: null
   train_eps: null
-  use_cosine_loss: True
+  use_cosine_loss: False
   use_lognorm: true
   use_jit: false
 

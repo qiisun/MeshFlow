@@ -117,8 +117,8 @@ cd ../../..
 CUDA_VISIBLE_DEVICES=6, \
 python eval_vae.py \
   --config configs/vae.yaml \
-  --checkpoint output/vae_rms/checkpoints/0010000.pt \
-  --output_dir output/vae_rms/eval_samples \
+  --checkpoint output/vae_rms_lamp/checkpoints/0030000.pt \
+  --output_dir output/vae_rms_lamp/eval_samples \
   --num_save 40
 ```
 

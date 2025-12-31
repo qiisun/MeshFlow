@@ -89,7 +89,8 @@ def do_train(train_config, accelerator):
     model = AutoencoderKL(latent_channels=train_config['model']['latent_channels'], 
                           decoder_type=train_config['model']['decoder_type'],
                           num_bins=train_config['data']['num_bins'],
-                          use_rmsnorm=train_config['model']['use_rms'])
+                          use_rmsnorm=train_config['model']['use_rms'],
+                          face_bin=train_config['model']['face_bin'])
     ema = deepcopy(model).to(device)  # Create an EMA of the model for use after training
 
     # load pretrained model

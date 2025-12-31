@@ -40,7 +40,7 @@ model:
   mixed_precision:
   use_dit_like_pe: False
   face_cond: True
-  face_bin: 10
+  face_bin: 100
   decoder_type: "reg"
   use_rms: True
 

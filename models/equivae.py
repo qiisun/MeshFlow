@@ -37,7 +37,8 @@ class AutoencoderKL(nn.Module):
                  latent_channels=3,
                  decoder_type="reg",
                  num_bins=256,
-                 use_rmsnorm=False):
+                 use_rmsnorm=False,
+                 face_bin=10):
         super().__init__()
         
         self.latent_channels = latent_channels
@@ -46,8 +47,8 @@ class AutoencoderKL(nn.Module):
 
         self.post_quant_linear = nn.Linear(latent_channels, hidden_dim)   
         
-        self.encoder = Model(hidden_dim=hidden_dim, model_type='encoder', num_bins=num_bins, use_rmsnorm=use_rmsnorm) # encoder 
-        self.decoder = Model(hidden_dim=hidden_dim, model_type='decoder', decoder_type=decoder_type, num_bins=num_bins, use_rmsnorm=use_rmsnorm) # decoder   
+        self.encoder = Model(hidden_dim=hidden_dim, model_type='encoder', num_bins=num_bins, use_rmsnorm=use_rmsnorm, face_bin=face_bin) # encoder 
+        self.decoder = Model(hidden_dim=hidden_dim, model_type='decoder', decoder_type=decoder_type, num_bins=num_bins, use_rmsnorm=use_rmsnorm, face_bin=face_bin) # decoder   
         
     def encode(self, x, cond, mask):
         """

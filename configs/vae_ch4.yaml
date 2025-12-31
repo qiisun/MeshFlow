@@ -27,7 +27,7 @@ model:
   use_rope: true
   use_rmsnorm: true
   wo_shift: false
-  latent_channels: 3
+  latent_channels: 4
   hidden_dim: 768
   num_heads: 12
   max_length: 800
@@ -50,12 +50,12 @@ train:
   global_batch_size: 128 #768
   global_seed: 0
   output_dir: 'output'
-  exp_name: 'vae_rms_lamp' # <---- experiment name, set as you like
+  exp_name: 'vae_rms_lamp_ch4' # <---- experiment name, set as you like
   ckpt: null
   log_every: 100
   ckpt_every: 3000 # 100 for debug
   kl_weight: 0.001 # <---- 1e-4
-  resume: True
+  resume: False
 
 optimizer:
   lr: 0.0001 # 1e-4

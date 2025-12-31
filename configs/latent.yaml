@@ -2,14 +2,14 @@ ckpt_path: 'path/to/your/checkpoint.pt'
 
 data:
   valid_path: 'debug/valid'
-  data_path: './downloaded_data/shapenet-03001627'
+  data_path: './downloaded_data/dummy'
   fid_reference_file: 'path/to/your/VIRTUAL_imagenet256_labeled.npz'
 
   # recommend to use default settings
   num_workers: 8
   do_dataset_normalize: False # should DONOT use normalization!!!!!
   noise_sort: 'random'
-  num_bins: 256 # unused in regression decoder
+  num_bins: 2048 # unused in regression decoder
   use_rot_aug: true
   use_scale_aug: false
   use_repa: false

@@ -126,8 +126,9 @@ class XEmbedder(nn.Module):
     """
     Embeds scalar timesteps into vector representations.
     """
-    def __init__(self, hidden_size, pe_freq, use_coord_encoding=True, version=2):
+    def __init__(self, hidden_size, pe_freq, use_coord_encoding=True, version=2, max_range=5):
         super().__init__()
+        self.max_range = max_range
         self.version = version
         embed_fn, frequency_embedding_size = get_embedder(pe_freq, input_dims=3 if version > 1 else 9)  # 10 -> 20
         self.embed_fn = embed_fn
@@ -148,7 +149,7 @@ class XEmbedder(nn.Module):
             b, n, _ = x.shape
             x = x.view(b, n*3, 3)
         if self.use_coord_encoding:
-            x = self.x_embedding(x=x)
+            x = self.x_embedding(x=x, max_period=self.max_range)
         x_emb = self.mlp(x) # [bs, N*3, hidden_dim]
         if self.version > 1:
             x_emb = x_emb.view(b, n, 3, self.hidden_size)

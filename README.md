@@ -22,7 +22,10 @@ conda activate mflow
 pip install torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 --index-url https://download.pytorch.org/whl/cu124
 
 # flash attention
-pip install https://github.com/Dao-AILab/flash-attention/releases/download/v2.6.3/flash_attn-2.6.3+cu123torch2.4cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
+pip install https://github.com/Dao-AILab/flash-attention/releases/download/v2.6.3/flash_attn-2.6.3+cu123torch2.4cxx11abiFALSE-cp310-cp310-linux_x86_64.whl # python 3.10
+
+# pip install https://github.com/Dao-AILab/flash-attention/releases/download/v2.6.3/flash_attn-2.6.3+cu123torch2.4cxx11abiFALSE-cp311-cp311-linux_x86_64.whl # python 3.11
+
 
 pip install -r requirements.txt
 
@@ -117,7 +120,7 @@ cd ../../..
 CUDA_VISIBLE_DEVICES=6, \
 python eval_vae.py \
   --config configs/vae.yaml \
-  --checkpoint output/vae_rms/checkpoints/0130000.pt \
+  --checkpoint output/vae_rms/checkpoints/0060000.pt \
   --output_dir output/vae_rms/eval_samples \
   --num_save 40
 ```

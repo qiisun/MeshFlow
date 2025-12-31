@@ -70,22 +70,27 @@ def do_train(train_config, accelerator):
     rank = accelerator.local_process_index
 
     # Create model:
-    model = DiT(hidden_dim=train_config['model']['hidden_dim'], # 768
-                num_heads=train_config['model']['num_heads'],
-                max_length=train_config['model']['max_length'],
-                input_dim=train_config['model']['input_dim'],
-                num_layers=train_config['model']['num_layers'],
-                gradient_checkpointing = train_config['model']['gradient_checkpointing'],
-                use_coord_encoding=train_config['model']['use_coord_encoding'],
-                version = train_config['model']['version'],
-                pe_freq=train_config['model']['pe_freq'],
-                mixed_precision=train_config['model']['mixed_precision'],
-                use_dit_like_pe=train_config['model']['use_dit_like_pe'],
-                face_cond=train_config['model']['face_cond'],
-                face_bin=train_config['model']['face_bin'],
-                use_rmsnorm=train_config['model']['use_rmsnorm'] if 'use_rmsnorm' in train_config['model'] else False,
-                use_repa=train_config['train']['use_repa']
-            )
+    # model = DiT(hidden_dim=train_config['model']['hidden_dim'], # 768
+    #             num_heads=train_config['model']['num_heads'],
+    #             max_length=train_config['model']['max_length'],
+    #             input_dim=train_config['model']['input_dim'],
+    #             num_layers=train_config['model']['num_layers'],
+    #             gradient_checkpointing = train_config['model']['gradient_checkpointing'],
+    #             use_coord_encoding=train_config['model']['use_coord_encoding'],
+    #             version = train_config['model']['version'],
+    #             pe_freq=train_config['model']['pe_freq'],
+    #             mixed_precision=train_config['model']['mixed_precision'],
+    #             use_dit_like_pe=train_config['model']['use_dit_like_pe'],
+    #             face_cond=train_config['model']['face_cond'],
+    #             face_bin=train_config['model']['face_bin'],
+    #             use_rmsnorm=train_config['model']['use_rmsnorm'] if 'use_rmsnorm' in train_config['model'] else False,
+    #             use_repa=train_config['train']['use_repa']
+    #         )
+    from models.dit import DiT_Llama_600M_patch1
+    model = DiT_Llama_600M_patch1()
+    num_params = sum(p.numel() for p in model.parameters())
+    print(f"Model Parameters: {num_params / 1e6:.2f} M")
+
     ema = deepcopy(model).to(device)  # Create an EMA of the model for use after training
 
     # load pretrained model
@@ -119,17 +124,18 @@ def do_train(train_config, accelerator):
     
     # Setup data
     dataset = ObjaverseDataset(
-        data_pth=train_config['data']['data_path'],
-        training=True,
-        noise_sort=train_config['data']['noise_sort'],
-        use_custom_prior=train_config['data']['use_custom_prior'] if 'use_custom_prior' in train_config['data'] else False,
-        use_decimated_dataset=train_config['data']['use_decimated_dataset'] if 'use_decimated_dataset' in train_config['data'] else False,
-        do_dataset_normalize=train_config['data']['do_dataset_normalize'] if 'do_dataset_normalize' in train_config['data'] else False,
-        vae=False,
-        use_rot_aug=train_config['data']['use_rot_aug'] if 'use_rot_aug' in train_config['data'] else True,
-        use_scale_aug=train_config['data']['use_scale_aug'] if 'use_scale_aug' in train_config['data'] else True,
-        use_repa=train_config['train']['use_repa']
-    )
+            data_pth=train_config['data']['data_path'],
+            training=True,
+            noise_sort=train_config['data']['noise_sort'],
+            use_custom_prior=train_config['data']['use_custom_prior'] if 'use_custom_prior' in train_config['data'] else False,
+            use_decimated_dataset=train_config['data']['use_decimated_dataset'] if 'use_decimated_dataset' in train_config['data'] else False,
+            do_dataset_normalize=train_config['data']['do_dataset_normalize'] if 'do_dataset_normalize' in train_config['data'] else False,
+            vae=False,
+            overfit=train_config['data']['overfit'] if 'overfit' in train_config['data'] else False,
+            use_rot_aug=train_config['data']['use_rot_aug'] if 'use_rot_aug' in train_config['data'] else True,
+            use_scale_aug=train_config['data']['use_scale_aug'] if 'use_scale_aug' in train_config['data'] else True,
+        )
+
     batch_size_per_gpu = int(np.round(train_config['train']['global_batch_size'] / accelerator.num_processes))
     global_batch_size = batch_size_per_gpu * accelerator.num_processes
     loader = DataLoader(
@@ -147,17 +153,17 @@ def do_train(train_config, accelerator):
     
     if 'valid_path' in train_config['data']:
         valid_dataset = ObjaverseDataset(
-        data_pth=train_config['data']['data_path'],
-        noise_sort=train_config['data']['noise_sort'],
-        training=False,
-        use_custom_prior=train_config['data']['use_custom_prior'] if 'use_custom_prior' in train_config['data'] else False,
-        use_decimated_dataset=train_config['data']['use_decimated_dataset'] if 'use_decimated_dataset' in train_config['data'] else False,
-        do_dataset_normalize=train_config['data']['do_dataset_normalize'] if 'do_dataset_normalize' in train_config['data'] else False,
-        vae=False,
-        use_rot_aug=False,
-        use_scale_aug=False,
-        use_repa=train_config['train']['use_repa']
-    )
+            data_pth=train_config['data']['data_path'],
+            training=False,
+            noise_sort=train_config['data']['noise_sort'],
+            use_custom_prior=train_config['data']['use_custom_prior'] if 'use_custom_prior' in train_config['data'] else False,
+            use_decimated_dataset=train_config['data']['use_decimated_dataset'] if 'use_decimated_dataset' in train_config['data'] else False,
+            do_dataset_normalize=train_config['data']['do_dataset_normalize'] if 'do_dataset_normalize' in train_config['data'] else False,
+            vae=False,
+            overfit=train_config['data']['overfit'] if 'overfit' in train_config['data'] else False,
+            use_rot_aug=train_config['data']['use_rot_aug'] if 'use_rot_aug' in train_config['data'] else True,
+            use_scale_aug=train_config['data']['use_scale_aug'] if 'use_scale_aug' in train_config['data'] else True,
+        )
 
         valid_loader = DataLoader(
             valid_dataset,
@@ -171,7 +177,7 @@ def do_train(train_config, accelerator):
         if accelerator.is_main_process:
             logger.info(f"Validation Dataset contains {len(valid_dataset):,} images {train_config['data']['valid_path']}")
     # Prepare models for training:
-    update_ema(ema, model.module, decay=0)  # Ensure EMA is initialized with synced weights
+    update_ema(ema, model.module, decay=0.999)  # Ensure EMA is initialized with synced weights
     model.train()  # important! This enables embedding dropout for classifier-free guidance
     ema.eval()  # EMA model should always be in eval mode
     
@@ -205,18 +211,6 @@ def do_train(train_config, accelerator):
     if accelerator.is_main_process:
         logger.info(f"Using checkpointing: {use_checkpoint}")
 
-    if train_config['train']['use_repa']:
-        captured_feats = {} 
-
-        def get_repa_hook(name):
-            def hook(model, input, output):
-                captured_feats[name] = output
-            return hook
-
-        repa_layer_idx = train_config['train']['repa_idx']
-        unwrapped_model = accelerator.unwrap_model(model)
-        hook_handle = unwrapped_model.layers[repa_layer_idx].register_forward_hook(get_repa_hook("mid_feat"))
-
     while True:
         for data in loader:
             x1 = data['tokens']
@@ -233,10 +227,6 @@ def do_train(train_config, accelerator):
                 x0 = x0.to(device)
                 y = y.to(device)
             model_kwargs = dict(y=y, mask=mask)
-            
-            if train_config['train']['use_repa']:
-                captured_feats.clear()
-                
             loss_dict = transport.training_losses(model, x1, x0, model_kwargs)
             
             if 'cos_loss' in loss_dict:
@@ -244,17 +234,6 @@ def do_train(train_config, accelerator):
                 loss = loss_dict["cos_loss"].mean() + mse_loss
             else:
                 loss = loss_dict["loss"].mean()
-                
-            
-            if train_config['train']['use_repa']:
-                f_feature = data['f_feature'] # [b, N_face, c']
-                student_feat_raw = captured_feats["mid_feat"].reshape(x1.shape[0], x1.shape[1], 3, -1).mean(dim=2)
-
-                student_feat_proj = unwrapped_model.proj(student_feat_raw.to(torch.float32))
-                cos_sim = F.cosine_similarity(student_feat_proj, f_feature, dim=-1)
-                repa_loss = ((1.0 - cos_sim) * mask).sum() / (mask.sum() + 1e-6)
-                loss_dict['repa_loss'] = repa_loss
-                loss = loss + repa_loss * 0.5
                 
             opt.zero_grad()
             accelerator.backward(loss)

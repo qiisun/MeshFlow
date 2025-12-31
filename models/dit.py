@@ -191,24 +191,21 @@ class TransformerBlock(nn.Module):
             nn.Linear(min(dim, 1024), 6 * dim, bias=True),
         )
 
-    def forward(self, x, freqs_cis, adaln_input=None):
-        if adaln_input is not None:
-            shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
-                self.adaLN_modulation(adaln_input).chunk(6, dim=1)
-            )
+    def forward(self, x, freqs_cis, mask=None, adaln_input=None):
+        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
+            self.adaLN_modulation(adaln_input).chunk(6, dim=1)
+        )
 
-            x = x + gate_msa.unsqueeze(1) * self.attention(
-                modulate(self.attention_norm(x), shift_msa, scale_msa), freqs_cis
-            )
-            x = x + gate_mlp.unsqueeze(1) * self.feed_forward(
-                modulate(self.ffn_norm(x), shift_mlp, scale_mlp)
-            )
-        else:
-            x = x + self.attention(self.attention_norm(x), freqs_cis)
-            x = x + self.feed_forward(self.ffn_norm(x))
+        x = x + gate_msa.unsqueeze(1) * self.attention(
+            modulate(self.attention_norm(x), shift_msa, scale_msa), 
+            freqs_cis, 
+            mask=mask 
+        )
+        x = x + gate_mlp.unsqueeze(1) * self.feed_forward(
+            modulate(self.ffn_norm(x), shift_mlp, scale_mlp)
+        )
 
         return x
-
 
 class FinalLayer(nn.Module):
     def __init__(self, hidden_size, patch_size, out_channels):
@@ -253,15 +250,6 @@ class DiT_Llama(nn.Module):
         self.out_channels = in_channels
         self.input_size = input_size
         self.patch_size = patch_size
-
-        # self.init_conv_seq = nn.Sequential(
-        #     nn.Conv2d(in_channels, dim // 2, kernel_size=5, padding=2, stride=1),
-        #     nn.SiLU(),
-        #     nn.GroupNorm(32, dim // 2),
-        #     nn.Conv2d(dim // 2, dim // 2, kernel_size=5, padding=2, stride=1),
-        #     nn.SiLU(),
-        #     nn.GroupNorm(32, dim // 2),
-        # )
         self.init_conv_seq = nn.Linear(in_channels * patch_size * patch_size, dim // 2, bias=True)
 
         self.x_embedder = nn.Linear(patch_size * patch_size * dim // 2, dim, bias=True)
@@ -288,26 +276,9 @@ class DiT_Llama(nn.Module):
         self.freqs_cis = DiT_Llama.precompute_freqs_cis(dim // n_heads, 4096)
 
     def unpatchify(self, x):
-        # c = self.out_channels
-        # p = self.patch_size
-        # h = w = int(x.shape[1] ** 0.5)
-        # x = x.reshape(shape=(x.shape[0], h, w, p, p, c))
-        # x = torch.einsum("nhwpqc->nchpwq", x)
-        # imgs = x.reshape(shape=(x.shape[0], c, h * p, h * p))
-        # return imgs
         return x
 
     def patchify(self, x):
-        # B, L, C = x.size()
-        # x = x.view(
-        #     B,
-        #     C,
-        #     H // self.patch_size,
-        #     self.patch_size,
-        #     W // self.patch_size,
-        #     self.patch_size,
-        # )
-        # x = x.permute(0, 2, 4, 1, 3, 5).flatten(-3).flatten(1, 2) # [b, L, c]
         return x
 
     def forward(self, x, t, y, mask=None):
@@ -336,11 +307,10 @@ class DiT_Llama(nn.Module):
                  attn_mask = attn_mask.to(x.dtype)
 
         for layer in self.layers:
-            x = layer(x, self.freqs_cis[: x.size(1)], adaln_input=adaln_input)
+            x = layer(x, self.freqs_cis[: x.size(1)], mask=attn_mask, adaln_input=adaln_input)
 
         x = self.final_layer(x, adaln_input)
-        x = self.unpatchify(x)  # (N, out_channels, H, W)
-
+        x = self.unpatchify(x)
         return x
 
         
@@ -373,8 +343,7 @@ def DiT_Llama_600M_patch2(**kwargs):
     return DiT_Llama(patch_size=2, dim=256, n_layers=16, n_heads=32, **kwargs)
 
 def DiT_Llama_600M_patch1(**kwargs):
-    return DiT_Llama(patch_size=1, dim=768, n_layers=12, n_heads=12, in_channels=9, **kwargs)
-
+    return DiT_Llama(patch_size=1, dim=256, n_layers=16, n_heads=32, in_channels=9, **kwargs)
 
 def DiT_Llama_3B_patch2(**kwargs):
     return DiT_Llama(patch_size=2, dim=3072, n_layers=32, n_heads=32, **kwargs)

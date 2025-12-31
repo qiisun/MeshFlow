@@ -49,18 +49,13 @@ def save_mesh(tokens: np.ndarray, path: str, clean: bool = True, num_bins=512, m
         vertices = vertices[:, [2, 1, 0]]  # zyx to xyz
 
         return vertices, faces
-
-    vertices, faces = simple_detokenize_mesh(tokens=tokens)
-    vertices = float_to_index_np(vertices, min_val=-max_val, max_val=max_val, num_bins=num_bins)
-    vertices = index_to_float_np(vertices, min_val=-0.5, max_val=0.5, num_bins=num_bins)
-
+    vertices, faces = simple_detokenize_mesh(tokens)
     mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
 
     if clean:
         mesh.merge_vertices()
         mesh.update_faces(mesh.unique_faces())
         mesh.fix_normals()
-    mesh.merge_vertices(merge_tex=True, merge_norm=True)
     mesh.export(path)
 
 
@@ -116,7 +111,8 @@ class ObjaverseDataset(Dataset):
                 use_rot_aug=False,
                 use_scale_aug=False,
                 use_repa=False,
-                use_permut_aug=True):
+                use_permut_aug=True,
+                use_edge_length_weighting=False):
         
         self.vae = vae
         self.training = training
@@ -129,6 +125,7 @@ class ObjaverseDataset(Dataset):
         self.noise_sort = noise_sort 
         self.use_repa = use_repa
         self.use_permut_aug = use_permut_aug
+        self.use_edge_length_weighting = use_edge_length_weighting
 
         if data_pth == 'all':
             self.dataset_paths = [
@@ -154,14 +151,11 @@ class ObjaverseDataset(Dataset):
             split_uids = set([item['uid'] for item in split])
             print(f"Loaded split {split_filename}, count: {len(split_uids)}")
 
-            folder_prefix = "objaverse_occ_v5_ids"
-
-            if self.training and self.use_decimated_dataset:
-                data_subfolder = f"{folder_prefix}_decimated"
+            if self.use_decimated_dataset:
+                folder_prefix = "objaverse_occ_v5_ids_filter_128"
             else:
-                data_subfolder = folder_prefix
-            
-            data_path = os.path.join(current_data_pth, data_subfolder)
+                folder_prefix = "objaverse_occ_v5_ids_128"
+            data_path = os.path.join(current_data_pth, folder_prefix)
             
             if not os.path.exists(data_path):
                 print(f"[WARNING] Predicted folder {data_path} not found.") 
@@ -217,7 +211,7 @@ class ObjaverseDataset(Dataset):
         cur_mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
         cur_mesh.export(f"{dir}/{name}.ply")
 
-    def sort_vertices_and_faces(self, vertices_, faces_, num_tokens=None):
+    def sort_vertices_and_faces(self, vertices_, faces_, num_tokens=None, vertices_edge_length_=None):
         assert (vertices_ <= 0.5).all() and (vertices_ >= -0.5).all() # [-0.5, 0.5]
         
         if num_tokens is not None:
@@ -248,7 +242,12 @@ class ObjaverseDataset(Dataset):
         
         if num_tokens is not None:
             vertices = vertices / num_tokens - 0.5  # [0, num_tokens -1] to [-0.5, 0.5)  for computing
-        return vertices, faces
+        
+        if vertices_edge_length_ is not None:
+            vertices_edge_length = vertices_edge_length_[sort_inds]
+            return vertices, faces, vertices_edge_length
+        else:
+            return vertices, faces
 
     def sample_noise(self, triangle_soup):
         if not self.use_custom_prior:
@@ -288,6 +287,9 @@ class ObjaverseDataset(Dataset):
         faces = data['faces']
         faces_num = data['faces_num']
         
+        if self.use_edge_length_weighting:
+            vertices_edge_length = data['vertices_edge_length']
+        
         if self.use_repa:
             f_feature = data['f_feature']  # [f, feat_dim]
             assert len(f_feature) == len(faces)
@@ -324,7 +326,10 @@ class ObjaverseDataset(Dataset):
         vertices = vertices / (bounds[1] - bounds[0]).max()
         vertices = vertices.clip(-0.5, 0.5)
         assert vertices.min() >= -0.5 and vertices.max() <= 0.5
-        vertices, faces = self.sort_vertices_and_faces(vertices, faces)
+        if self.use_edge_length_weighting:
+            vertices, faces, vertices_edge_length = self.sort_vertices_and_faces(vertices, faces, vertices_edge_length_=vertices_edge_length) # [N_v, 3], [N_f, 3], [N_v]
+        else:
+            vertices, faces = self.sort_vertices_and_faces(vertices, faces)
         if vertices is None:
             # sample another data
             return self.__getitem__(np.random.randint(0, len(self.data)))
@@ -337,6 +342,11 @@ class ObjaverseDataset(Dataset):
             data_dict['noise'] = noise.reshape(faces_num, -1)
             if self.use_repa:
                 data_dict['f_feature'] = f_feature[perm_idx]
+                
+        if self.vae and self.use_edge_length_weighting:
+            # TODO: face + [N_v, 1] -> [N_f, 3, 1] each vertex edge length 
+            v_weights = vertices_edge_length[faces]
+            data_dict['min_length_per_vertex'] = v_weights.reshape(faces_num, -1) # [n_f, 3]
         
         data_dict['coords'] = coords.reshape(faces_num, -1) 
         data_dict['num_faces'] = faces_num
@@ -358,6 +368,7 @@ def collate_fn(batch, max_seq_length=800):
     noises = []
     masks = []
     features = []
+    weights = []
     input_c = batch[0]['coords'].shape[1] 
         
     for item in batch:
@@ -379,6 +390,13 @@ def collate_fn(batch, max_seq_length=800):
                     item['f_feature'],
                     np.full((pad_len, item['f_feature'].shape[1]), 0),
                 ], axis=0))
+            
+            if "v_weights" in item.keys():
+                w_dim = item['v_weights'].shape[1]
+                weights.append(np.concatenate([
+                    item['v_weights'],
+                    np.full((pad_len, w_dim), 0),
+                ], axis=0))
                 
             masks.append(np.concatenate([
                 np.ones(item['len']), 
@@ -399,6 +417,8 @@ def collate_fn(batch, max_seq_length=800):
         results['noise'] = torch.from_numpy(np.stack(noises, axis=0)).float() # [B, M]
     if len(features) > 0:
         results['f_feature'] = torch.from_numpy(np.stack(features, axis=0)).float() # [B, M]
+    if len(weights) > 0:
+        results['v_weights'] = torch.from_numpy(np.stack(weights, axis=0)).float() # [B, M, 3]
     results['masks'] = torch.from_numpy(np.stack(masks, axis=0)).bool()
     return results
 

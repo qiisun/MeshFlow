@@ -25,7 +25,6 @@ warnings.filterwarnings("ignore", message=".*torch.cpu.amp.autocast.*")
 os.environ["NCCL_P2P_DISABLE"] = "1"
 os.environ["NCCL_IB_DISABLE"] = "1"
 
-from models.equivae import loss_vae, AutoencoderKL, index_to_float
 from datasets.mesh_dataset import ObjaverseDataset, collate_fn
 from datasets.mesh_dataset import save_mesh
 
@@ -86,10 +85,17 @@ def do_train(train_config, accelerator):
     rank = accelerator.local_process_index
 
     # Create model:
+    from models.equivae import AutoencoderKL, loss_vae, index_to_float
     model = AutoencoderKL(latent_channels=train_config['model']['latent_channels'], 
-                          decoder_type=train_config['model']['decoder_type'],
-                          num_bins=train_config['data']['num_bins'],
-                          use_rmsnorm=train_config['model']['use_rms'])
+                        decoder_type=train_config['model']['decoder_type'],
+                        num_bins=train_config['data']['num_bins'],
+                        use_rmsnorm=train_config['model']['use_rms'],
+                        noise_level=train_config['model']['noise_std'] if train_config['model']['fixed_noise'] else None, # should be input
+                        use_equi_model = train_config['model']['use_equi_model'],
+                        use_encoder = train_config['model']['use_encoder'],
+                        fixed_noise = train_config['model']['fixed_noise'],
+                        use_coord_encoding_decoder = train_config['model']['use_coord_encoding_decoder'],
+                        )
     ema = deepcopy(model).to(device)  # Create an EMA of the model for use after training
 
     # load pretrained model
@@ -197,6 +203,8 @@ def do_train(train_config, accelerator):
     log_steps = 0
     running_loss = 0
     running_kl_loss = 0
+    running_mae = 0
+    running_rmse = 0
     start_time = time()
     use_checkpoint = train_config['train']['use_checkpoint'] if 'use_checkpoint' in train_config['train'] else True
     if accelerator.is_main_process:
@@ -214,11 +222,31 @@ def do_train(train_config, accelerator):
             else:
                 x1 = x1.to(device)
                 y = y.to(device)
-            recon, posterior, z = model(x1, cond=y, mask=mask)        
-            loss, rec_l, kl_l = loss_vae(x1, recon, posterior, mask=mask, kl_weight=train_config['train']['kl_weight'], num_bins=train_config['data']['num_bins'], decoder_type=train_config['model']['decoder_type'])
-            # loss = loss_dict["loss"].mean()
+            clean_mesh, posterior, z = model(x1, cond=y, mask=mask)    
+            
+            kwargs = {} if "v_weights" not in data.keys() else {"v_weights": data['v_weights']}    
+            loss, kl_l, mae, rmse = loss_vae(x1, 
+                                         clean_mesh, 
+                                         posterior=posterior, mask=mask, kl_weight=train_config['train']['kl_weight'], num_bins=train_config['data']['num_bins'], 
+                                         decoder_type=train_config['model']['decoder_type'],
+                                         loss_type=train_config['model']['loss_type'], 
+                                         noise_scale=train_config['model']['noise_std'],
+                                         fixed_noise=train_config['model']['fixed_noise'],
+                                         **kwargs
+                                         )
+
             opt.zero_grad()
             accelerator.backward(loss)
+            
+            # Calculate and log gradient norm
+            total_norm = 0.0
+            if accelerator.sync_gradients:
+                for p in model.parameters():
+                    if p.grad is not None:
+                        param_norm = p.grad.data.norm(2)
+                        total_norm += param_norm.item() ** 2
+                total_norm = total_norm ** (1. / 2)
+            
             if 'max_grad_norm' in train_config['optimizer']:
                 if accelerator.sync_gradients:
                     accelerator.clip_grad_norm_(model.parameters(), train_config['optimizer']['max_grad_norm'])
@@ -229,6 +257,8 @@ def do_train(train_config, accelerator):
             # Log loss values:
             running_loss += loss.item()
             running_kl_loss += kl_l.item()
+            running_mae += mae.item()
+            running_rmse += rmse.item()
             log_steps += 1
             train_steps += 1
             if train_steps % train_config['train']['log_every'] == 0:
@@ -239,17 +269,32 @@ def do_train(train_config, accelerator):
                 # Reduce loss history over all processes:
                 avg_loss = torch.tensor(running_loss / log_steps, device=device)
                 avg_kl   = torch.tensor(running_kl_loss / log_steps, device=device)
+                avg_mae  = torch.tensor(running_mae / log_steps, device=device)
+                avg_rmse = torch.tensor(running_rmse / log_steps, device=device)
+                avg_grad_norm = torch.tensor(total_norm, device=device) if accelerator.sync_gradients else torch.tensor(0.0, device=device)
                 dist.all_reduce(avg_kl, op=dist.ReduceOp.SUM)
                 dist.all_reduce(avg_loss, op=dist.ReduceOp.SUM)
+                dist.all_reduce(avg_mae, op=dist.ReduceOp.SUM)
+                dist.all_reduce(avg_rmse, op=dist.ReduceOp.SUM)
+                if accelerator.sync_gradients:
+                    dist.all_reduce(avg_grad_norm, op=dist.ReduceOp.SUM)
                 avg_loss = avg_loss.item() / dist.get_world_size()
                 avg_kl   = avg_kl.item() / dist.get_world_size()
+                avg_mae  = avg_mae.item() / dist.get_world_size()
+                avg_rmse = avg_rmse.item() / dist.get_world_size()
+                avg_grad_norm = avg_grad_norm.item() / dist.get_world_size() if accelerator.sync_gradients else 0.0
                 if accelerator.is_main_process:
-                    logger.info(f"(step={train_steps:07d}) Train Loss: {avg_loss:.6f}, Train Steps/Sec: {steps_per_sec:.2f}, LR: {scheduler.get_last_lr()[0]:.6f}")
+                    logger.info(f"(step={train_steps:07d}) Train Loss: {avg_loss:.6f}, MAE: {avg_mae:.6f}, RMSE: {avg_rmse:.6f}, Train Steps/Sec: {steps_per_sec:.2f}, LR: {scheduler.get_last_lr()[0]:.6f}, Grad Norm: {avg_grad_norm:.4f}")
                     writer.add_scalar('Loss/train_kl', avg_kl, train_steps)
                     writer.add_scalar('Loss/train', avg_loss, train_steps)
+                    writer.add_scalar('Metrics/train_mae', avg_mae, train_steps)
+                    writer.add_scalar('Metrics/train_rmse', avg_rmse, train_steps)
+                    writer.add_scalar('Training/grad_norm', avg_grad_norm, train_steps)
                 # Reset monitoring variables:
                 running_loss = 0
                 running_kl_loss = 0
+                running_mae = 0
+                running_rmse = 0
                 log_steps = 0
                 start_time = time()
 
@@ -273,8 +318,10 @@ def do_train(train_config, accelerator):
                     if accelerator.is_main_process: # only validate on main process
                         logger.info(f"Start evaluating at step {train_steps}")
                         
-                        total_val_loss = 0.0
                         total_rec_loss = 0.0
+                        total_kl_loss = 0.0
+                        total_mae = 0.0
+                        total_rmse = 0.0
                         num_batches = 0
                         
                         save_mesh_dir = f'{experiment_dir}/mesh_{train_steps}'
@@ -285,15 +332,32 @@ def do_train(train_config, accelerator):
                             mask = data['masks'].to(device)
                             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                                 with torch.no_grad():
-                                    recon, posterior, z  = ema(x1, cond=y, mask=mask, sample_posterior=False)
-                                    val_loss, rec_loss, _ = loss_vae(x1, recon, posterior, mask=mask, kl_weight=train_config['train']['kl_weight'], num_bins=train_config['data']['num_bins'], decoder_type=train_config['model']['decoder_type'])
-                                    total_val_loss += val_loss.item()
-                                    total_rec_loss += rec_loss.item()
+                                    clean_mesh, posterior, z = ema(x1, cond=y, mask=mask, sample_posterior=True)
+                                    val_kwargs = {} if "v_weights" not in data.keys() else {"v_weights": data['v_weights']}
+                                    val_rec_loss, val_kl, val_mae, val_rmse = loss_vae(x1, 
+                                                                                   clean_mesh, 
+                                                                                   posterior=posterior, 
+                                                                                   mask=mask, 
+                                                                                   kl_weight=train_config['train']['kl_weight'], 
+                                                                                   num_bins=train_config['data']['num_bins'], 
+                                                                                   decoder_type=train_config['model']['decoder_type'],
+                                                                                   loss_type=train_config['model']['loss_type'], 
+                                                                                   noise_scale=train_config['model']['noise_std'],
+                                                                                   fixed_noise=train_config['model']['fixed_noise'],
+                                                                                   **val_kwargs
+                                                                                   )
+                                    total_rec_loss += val_rec_loss.item()
+                                    total_kl_loss += val_kl.item()
+                                    total_mae += val_mae.item()
+                                    total_rmse += val_rmse.item()
                                     num_batches += 1
                                     
-                                    if i < 5:
+                                    if i < 10:
+                                        # Save ground truth mesh
+                                        save_mesh(x1[0].to(torch.float32).cpu().numpy(), f'{save_mesh_dir}/{i:03d}_gt.obj', num_bins=train_config['data']['num_bins'])
+                                        
                                         if train_config['model']['decoder_type'] == 'cls':
-                                            recon_indices = torch.argmax(recon, dim=-1)
+                                            recon_indices = torch.argmax(clean_mesh, dim=-1)
                                             recon_coords = index_to_float(
                                                 recon_indices, 
                                                 min_val=-0.5, 
@@ -303,13 +367,20 @@ def do_train(train_config, accelerator):
                                             save_mesh(recon_coords[0].to(torch.float32).cpu().numpy(), f'{save_mesh_dir}/{i:03d}.obj', num_bins=train_config['data']['num_bins'])
 
                                         if train_config['model']['decoder_type'] == 'reg':
-                                            save_mesh(recon[0].to(torch.float32).cpu().numpy(), f'{save_mesh_dir}/{i:03d}.obj', num_bins=train_config['data']['num_bins'])
+                                            save_mesh(clean_mesh[0].to(torch.float32).cpu().numpy(), f'{save_mesh_dir}/{i:03d}.obj', num_bins=train_config['data']['num_bins'])
 
                         if num_batches > 0:
-                            avg_val_loss = total_val_loss / num_batches
                             avg_rec_loss = total_rec_loss / num_batches
-                        logger.info(f"Validation Loss: {avg_val_loss:.4f}")
-                        writer.add_scalar('Loss/validation', avg_val_loss, train_steps)
+                            avg_kl_loss = total_kl_loss / num_batches
+                            avg_mae = total_mae / num_batches
+                            avg_rmse = total_rmse / num_batches
+                        if accelerator.is_main_process:
+                            logger.info(f"Validation Rec Loss: {avg_rec_loss:.6f}, Validation KL Loss: {avg_kl_loss:.6f}, Validation MAE: {avg_mae:.6f}, Validation RMSE: {avg_rmse:.6f}")
+                            writer.add_scalar('Loss/validation_rec', avg_rec_loss, train_steps)
+                            writer.add_scalar('Loss/validation_kl', avg_kl_loss, train_steps)
+                            writer.add_scalar('Metrics/validation_mae', avg_mae, train_steps)
+                            writer.add_scalar('Metrics/validation_rmse', avg_rmse, train_steps)
+                        writer.add_scalar('Loss/validation_rmse', avg_rmse, train_steps)
                     model.train()
             if train_steps >= train_config['train']['max_steps']:
                 break

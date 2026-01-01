@@ -69,41 +69,25 @@ def do_sample_simple(model, valid_loader,
                 model_kwargs=train_kwargs
             )
             
-            # 聚合 Loss (MSE + Cosine)
             if 'cos_loss' in loss_dict:
                 batch_loss = loss_dict["loss"].mean() + loss_dict["cos_loss"].mean()
             else:
                 batch_loss = loss_dict["loss"].mean()
             
-            # 累加 Loss
             total_loss += batch_loss.item()
             count += 1
              
-        # --- Part B: 采样生成 (Sampling) ---
-        # 1. 准备噪声
         z = torch.randn_like(x1, device=device) # [bs, N, 9]
-
         z_in = torch.cat([z, z], dim=0) # [2bs, N, 9]
-        
         y_null = torch.full_like(y, fill_value=null_token)
         y_in = torch.cat([y, y_null], dim=0) # [2bs]
-
         mask_in = torch.cat([mask, mask], dim=0) # [2bs, N]
-
-        # 3. 采样参数
         sample_kwargs = dict(y=y_in, cfg_scale=cfg_scale, mask=mask_in)
-
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-            # 采样结果也是双倍的
             samples = sample_fn(z_in, model_unwrapped.forward_with_cfg, **sample_kwargs)[-1]
             samples = samples[:bs]
-
-        images.append(samples) # 可以选择只存一部分以节省内存
-
-        # --- Part C: 保存 Mesh (每批只存第1个样本以供预览) ---
-        # 这里的 samples 已经是 [bs, N, 9]
-        
-        sample_to_save = samples[0] # [N, 9]
+        images.append(samples)
+        sample_to_save = samples[0]
         
         if vae is None:
             save_mesh(sample_to_save.cpu().numpy(), f'{save_dir_mesh}/{i:03d}.obj', max_val=1.67)

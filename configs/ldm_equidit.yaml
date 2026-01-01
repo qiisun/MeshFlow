@@ -1,0 +1,88 @@
+ckpt_path: 'path/to/your/checkpoint.pt'
+
+data:
+  data_path: 'downloaded_data/shapenet-03636649'
+  valid_path: 'debug/valid' # unused
+
+  # recommend to use default settings
+  num_workers: 8
+  do_dataset_normalize: False # should DONOT use normalization!!!!!
+  noise_sort: 'random'
+  num_bins: 256 # unused in regression decoder
+  use_rot_aug: true
+  use_scale_aug: false
+  use_repa: false
+  use_permut_aug: true
+  is_overfit: False
+
+vae:
+  latent_channels: 3
+  model_type: "equidit"
+  use_rmsnorm: True
+  scale_factor:  0.740349 # note: on the evaluation dataset.
+  vae_ckpt: output/vae_rms_lamp/checkpoints/0036000.pt
+  decoder_type: "reg"
+
+model:
+  model_type: "equidit"
+  use_qknorm: false
+  use_swiglu: true
+  use_rmsnorm: true
+  wo_shift: false
+
+  hidden_dim: 768
+  num_heads: 12
+  max_length: 800
+  num_layers: 12
+  gradient_checkpointing: False
+  use_coord_encoding: False # False for latent diffusion
+  version: 1
+  pe_freq: 20
+  mixed_precision:
+  use_dit_like_pe: False
+  face_cond: True
+  face_bin: 10
+  is_latent: True
+
+# recommend to use default settings
+train:
+  max_steps: 400000
+  global_batch_size: 64 # 64 # 7*24 for debug
+  global_seed: 0
+  output_dir: 'output'
+  exp_name: 'ldm_equi'
+  ckpt: null
+  log_every: 100
+  ckpt_every: 3000 # 100 for debug
+  resume: False
+  
+optimizer:
+  lr: 0.0002
+  beta2: 0.95
+  
+# recommend to use default settings
+transport:
+  path_type: Linear
+  prediction: velocity
+  loss_weight: null
+  sample_eps: null
+  train_eps: null
+  use_cosine_loss: False
+  use_lognorm: true
+  use_jit: false
+
+# recommend to use default settings
+sample:
+  mode: ODE
+  sampling_method: euler
+  atol: 0.000001
+  rtol: 0.001
+  reverse: false
+  likelihood: false
+  num_sampling_steps: 50
+  cfg_scale: 10.0
+  # recommend to use default settings
+  per_proc_batch_size: 4
+  fid_num: 50000
+  cfg_interval_start: 0.11
+  timestep_shift: 0.3

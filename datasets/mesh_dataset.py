@@ -39,7 +39,7 @@ def generate_custom_prior(num_samples, var_scale=0.05):
     return np.concatenate([vertice23, vertice1], axis=1)  # [N, 3, 3]
 
 
-def save_mesh(tokens: np.ndarray, path: str, clean: bool = True, num_bins=512, max_val=0.5):
+def save_mesh(tokens: np.ndarray, path: str, clean: bool = True, num_bins=2048, max_val=0.5):
     # [N, 3, 3] -> mesh
     def simple_detokenize_mesh(tokens: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         coords = tokens.reshape(-1, 3).astype(np.float32)
@@ -60,7 +60,6 @@ def save_mesh(tokens: np.ndarray, path: str, clean: bool = True, num_bins=512, m
         mesh.merge_vertices()
         mesh.update_faces(mesh.unique_faces())
         mesh.fix_normals()
-    mesh.merge_vertices(merge_tex=True, merge_norm=True)
     mesh.export(path)
 
 

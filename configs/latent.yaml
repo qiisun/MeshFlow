@@ -1,12 +1,7 @@
 ckpt_path: 'path/to/your/checkpoint.pt'
 
 data:
-<<<<<<< HEAD
-  valid_path: 'debug/valid'
-  data_path: './downloaded_data/dummy' # 'shapenet-03001627'
-=======
   data_path: 'downloaded_data/shapenet-03636649'
->>>>>>> faeeaaf5251eb834611b5726ce83ee35ea9a45f8
 
   # recommend to use default settings
   num_workers: 8
@@ -70,11 +65,7 @@ transport:
   loss_weight: null
   sample_eps: null
   train_eps: null
-<<<<<<< HEAD
-  use_cosine_loss: false
-=======
   use_cosine_loss: False
->>>>>>> faeeaaf5251eb834611b5726ce83ee35ea9a45f8
   use_lognorm: true
   use_jit: false
 

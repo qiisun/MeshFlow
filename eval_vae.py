@@ -30,7 +30,8 @@ def evaluate(args):
     model = AutoencoderKL(latent_channels=config['model']['latent_channels'],
                           decoder_type=config['model']['decoder_type'],
                           num_bins=config['data']['num_bins'],
-                          use_rmsnorm=config['model']['use_rms']).to(device)
+                          use_rmsnorm=config['model']['use_rms'],
+                          face_bin=config['model']['face_bin']).to(device)
     
     decoder_type = config['model']['decoder_type']
     num_bins = config['data']['num_bins']

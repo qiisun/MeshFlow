@@ -2,6 +2,7 @@ ckpt_path: 'path/to/your/checkpoint.pt'
 
 data:
   data_path: 'downloaded_data/shapenet-03636649'
+  valid_path: 'debug/valid' # unused
 
   # recommend to use default settings
   num_workers: 8
@@ -53,6 +54,7 @@ train:
   ckpt: null
   log_every: 100
   ckpt_every: 3000 # 100 for debug
+  resume: True
   
 optimizer:
   lr: 0.0002

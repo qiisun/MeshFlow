@@ -256,6 +256,7 @@ class DiT(nn.Module):
                 ):
         super().__init__()
         input_dim = 3 if version > 1 else 9
+        self.input_dim = input_dim
         self.version = version
         self.use_coord_encoding = use_coord_encoding
         self.hidden_size = hidden_dim
@@ -383,29 +384,29 @@ class DiT(nn.Module):
         if self.version > 1:
             x = x.view(B, N, 9)
         return x
-
     
     def forward_with_cfg(self, x, t, y, mask=None, cfg_scale=1.0):
-        """
-        Forward pass of SiT, but also batches the unconSiTional forward pass for classifier-free guidance.
-        """
-        # x: [2, n, 9]
-        # t: [2,]
-        # y: [2,]
-        # mask: [1, n]
+        # 1. 确保输入 latent (x) 的条件和无条件分支完全一致
         half = x[: len(x) // 2]
         combined = torch.cat([half, half], dim=0)
+        
+        # 2. 处理 Mask：使其与 combined 的结构对齐
+        combined_mask = None
         if mask is not None:
-            mask = mask.repeat(2, 1) # repeat mask, [2, n]
-        model_out = self.forward(combined, t=t, y=y, mask=mask)
-        # For exact reproducibility reasons, we apply classifier-free guidance on only
-        # three channels by default. The standard approach to cfg applies it to all channels.
-        # This can be done by uncommenting the following line and commenting-out the line following that.
-        # eps, rest = model_out[:, :self.in_channels], model_out[:, self.in_channels:]
-        cond_vel, uncond_vel = torch.split(model_out, len(model_out) // 2, dim=0)
-        half_vel = uncond_vel + cfg_scale * (cond_vel - uncond_vel)
-        vel = torch.cat([half_vel, half_vel], dim=0)
-        return vel
+            mask_half = mask[: len(mask) // 2]
+            combined_mask = torch.cat([mask_half, mask_half], dim=0)
+
+        # 3. 前向传播
+        model_out = self.forward(combined, t, y, mask=combined_mask)
+        
+        eps, rest = model_out[:, :self.input_dim], model_out[:, self.input_dim:]
+        
+        # 5. 计算 CFG
+        cond_eps, uncond_eps = torch.split(eps, len(eps) // 2, dim=0)
+        half_eps = uncond_eps + cfg_scale * (cond_eps - uncond_eps)
+        eps = torch.cat([half_eps, half_eps], dim=0)
+        
+        return torch.cat([eps, rest], dim=1)
 
 
 class FinalLayer(nn.Module):

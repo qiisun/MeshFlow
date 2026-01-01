@@ -1,13 +1,14 @@
 CONFIG_PATH=$1
 
-TARGET_GPU_ID=4,5,6
-GPUS_PER_NODE=3
+
+TARGET_GPU_ID=0,1,3,2
+GPUS_PER_NODE=4
 PRECISION=${PRECISION:-bf16}
 # GPUS_PER_NODE=${GPUS_PER_NODE:-1}
 NNODES=${WORLD_SIZE:-1}
 NODE_RANK=${RANK:-0}
 MASTER_ADDR=${MASTER_ADDR:-127.0.1.0}
-MASTER_PORT=${MASTER_PORT:-1240}
+MASTER_PORT=${MASTER_PORT:-1230}
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
 accelerate launch \
@@ -18,7 +19,7 @@ accelerate launch \
     --num_machines $NNODES \
     --mixed_precision $PRECISION \
     --gpu_ids $TARGET_GPU_ID \
-    train_vae.py \
+    train_latent.py \
     --config $CONFIG_PATH
 
 

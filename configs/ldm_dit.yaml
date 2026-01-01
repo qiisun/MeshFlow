@@ -24,7 +24,7 @@ vae:
   decoder_type: "reg"
 
 model:
-  model_type: "equidit"
+  model_type: "dit"
   use_qknorm: false
   use_swiglu: true
   use_rmsnorm: true
@@ -35,7 +35,7 @@ model:
   max_length: 800
   num_layers: 12
   gradient_checkpointing: False
-  use_coord_encoding: False # True
+  use_coord_encoding: False # False for latent diffusion
   version: 1
   pe_freq: 20
   mixed_precision:
@@ -47,14 +47,14 @@ model:
 # recommend to use default settings
 train:
   max_steps: 400000
-  global_batch_size: 128 # 7*24 for debug
+  global_batch_size: 48 # 7*24 for debug
   global_seed: 0
   output_dir: 'output'
-  exp_name: 'ldm_dummy'
+  exp_name: 'ldm_1'
   ckpt: null
   log_every: 100
   ckpt_every: 3000 # 100 for debug
-  resume: True
+  resume: False
   
 optimizer:
   lr: 0.0002

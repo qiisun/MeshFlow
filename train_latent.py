@@ -82,24 +82,26 @@ def do_train(train_config, accelerator):
     rank = accelerator.local_process_index
 
     # --- 3. Create DiT Model (The Second Stage) ---
-    from models.dit import DiT_Llama_600M_patch1
-    model = DiT_Llama_600M_patch1()
-    # model = DiT(
-    #     hidden_dim=train_config['model']['hidden_dim'], 
-    #     num_heads=train_config['model']['num_heads'],
-    #     max_length=train_config['model']['max_length'],
-    #     num_layers=train_config['model']['num_layers'],
-    #     gradient_checkpointing=train_config['model']['gradient_checkpointing'],
-    #     use_coord_encoding=train_config['model']['use_coord_encoding'],
-    #     version=train_config['model']['version'],
-    #     pe_freq=train_config['model']['pe_freq'],
-    #     mixed_precision=train_config['model']['mixed_precision'],
-    #     use_dit_like_pe=train_config['model']['use_dit_like_pe'],
-    #     face_cond=train_config['model']['face_cond'],
-    #     face_bin=train_config['model']['face_bin'],
-    #     use_rmsnorm=train_config['model']['use_rmsnorm'] if 'use_rmsnorm' in train_config['model'] else False,
-    #     is_latent=train_config['model']['is_latent']
-    # )
+    if train_config['model']['model_type'] == 'dit':
+        from models.dit import DiT_Llama_600M_patch1
+        model = DiT_Llama_600M_patch1()
+    elif train_config['model']['model_type'] == 'equidit':
+        model = DiT(
+            hidden_dim=train_config['model']['hidden_dim'], 
+            num_heads=train_config['model']['num_heads'],
+            max_length=train_config['model']['max_length'],
+            num_layers=train_config['model']['num_layers'],
+            gradient_checkpointing=train_config['model']['gradient_checkpointing'],
+            use_coord_encoding=train_config['model']['use_coord_encoding'],
+            version=train_config['model']['version'],
+            pe_freq=train_config['model']['pe_freq'],
+            mixed_precision=train_config['model']['mixed_precision'],
+            use_dit_like_pe=train_config['model']['use_dit_like_pe'],
+            face_cond=train_config['model']['face_cond'],
+            face_bin=train_config['model']['face_bin'],
+            use_rmsnorm=train_config['model']['use_rmsnorm'] if 'use_rmsnorm' in train_config['model'] else False,
+            is_latent=train_config['model']['is_latent'],
+        )
     num_params = sum(p.numel() for p in model.parameters())
     print(f"Model Parameters: {num_params / 1e6:.2f} M")
 
@@ -142,6 +144,7 @@ def do_train(train_config, accelerator):
         overfit=train_config['data']['overfit'] if 'overfit' in train_config['data'] else False,
         use_rot_aug=train_config['data']['use_rot_aug'] if 'use_rot_aug' in train_config['data'] else True,
         use_scale_aug=train_config['data']['use_scale_aug'] if 'use_scale_aug' in train_config['data'] else True,
+        use_permut_aug = train_config['data']['use_permut_aug']
     )
 
     
@@ -168,6 +171,7 @@ def do_train(train_config, accelerator):
             overfit=train_config['data']['overfit'] if 'overfit' in train_config['data'] else False,
             use_rot_aug=train_config['data']['use_rot_aug'] if 'use_rot_aug' in train_config['data'] else True,
             use_scale_aug=train_config['data']['use_scale_aug'] if 'use_scale_aug' in train_config['data'] else True,
+            use_permut_aug = train_config['data']['use_permut_aug']
         )
 
         valid_loader = DataLoader(

@@ -89,7 +89,8 @@ def do_train(train_config, accelerator):
     model = AutoencoderKL(latent_channels=train_config['model']['latent_channels'], 
                           decoder_type=train_config['model']['decoder_type'],
                           num_bins=train_config['data']['num_bins'],
-                          use_rmsnorm=train_config['model']['use_rms'])
+                          use_rmsnorm=train_config['model']['use_rms'],
+                          face_bin=train_config['model']['face_bin'])
     ema = deepcopy(model).to(device)  # Create an EMA of the model for use after training
 
     # load pretrained model
@@ -196,7 +197,10 @@ def do_train(train_config, accelerator):
 
     log_steps = 0
     running_loss = 0
+    running_rec_loss = 0
     running_kl_loss = 0
+    running_rmse = 0
+    running_grad_norm = 0
     start_time = time()
     use_checkpoint = train_config['train']['use_checkpoint'] if 'use_checkpoint' in train_config['train'] else True
     if accelerator.is_main_process:
@@ -215,20 +219,48 @@ def do_train(train_config, accelerator):
                 x1 = x1.to(device)
                 y = y.to(device)
             recon, posterior, z = model(x1, cond=y, mask=mask)        
-            loss, rec_l, kl_l = loss_vae(x1, recon, posterior, mask=mask, kl_weight=train_config['train']['kl_weight'], num_bins=train_config['data']['num_bins'], decoder_type=train_config['model']['decoder_type'])
+            loss, rec_l, kl_l, rmse = loss_vae(x1, recon, posterior, mask=mask, kl_weight=train_config['train']['kl_weight'], num_bins=train_config['data']['num_bins'], decoder_type=train_config['model']['decoder_type'])
             # loss = loss_dict["loss"].mean()
             opt.zero_grad()
             accelerator.backward(loss)
+            
+            # Calculate gradient norm
+            grad_norm = 0.0
             if 'max_grad_norm' in train_config['optimizer']:
                 if accelerator.sync_gradients:
-                    accelerator.clip_grad_norm_(model.parameters(), train_config['optimizer']['max_grad_norm'])
+                    grad_norm = accelerator.clip_grad_norm_(model.parameters(), train_config['optimizer']['max_grad_norm'])
+                else:
+                    # Calculate manually if not syncing
+                    total_norm = 0.0
+                    for p in model.parameters():
+                        if p.grad is not None:
+                            param_norm = p.grad.data.norm(2)
+                            total_norm += param_norm.item() ** 2
+                    grad_norm = total_norm ** (1. / 2)
+            else:
+                # Calculate gradient norm even if not clipping
+                if accelerator.sync_gradients:
+                    # Use a large value to get the norm without clipping
+                    grad_norm = accelerator.clip_grad_norm_(model.parameters(), float('inf'))
+                else:
+                    # Calculate manually
+                    total_norm = 0.0
+                    for p in model.parameters():
+                        if p.grad is not None:
+                            param_norm = p.grad.data.norm(2)
+                            total_norm += param_norm.item() ** 2
+                    grad_norm = total_norm ** (1. / 2)
+            
             opt.step()
             scheduler.step()
             update_ema(ema, model.module)
 
             # Log loss values:
             running_loss += loss.item()
+            running_rec_loss += rec_l.item()
             running_kl_loss += kl_l.item()
+            running_rmse += rmse.item()
+            running_grad_norm += grad_norm if isinstance(grad_norm, (int, float)) else grad_norm.item()
             log_steps += 1
             train_steps += 1
             if train_steps % train_config['train']['log_every'] == 0:
@@ -238,18 +270,33 @@ def do_train(train_config, accelerator):
                 steps_per_sec = log_steps / (end_time - start_time)
                 # Reduce loss history over all processes:
                 avg_loss = torch.tensor(running_loss / log_steps, device=device)
-                avg_kl   = torch.tensor(running_kl_loss / log_steps, device=device)
-                dist.all_reduce(avg_kl, op=dist.ReduceOp.SUM)
+                avg_rec_loss = torch.tensor(running_rec_loss / log_steps, device=device)
+                avg_kl = torch.tensor(running_kl_loss / log_steps, device=device)
+                avg_rmse = torch.tensor(running_rmse / log_steps, device=device)
+                avg_grad_norm = torch.tensor(running_grad_norm / log_steps, device=device)
                 dist.all_reduce(avg_loss, op=dist.ReduceOp.SUM)
+                dist.all_reduce(avg_rec_loss, op=dist.ReduceOp.SUM)
+                dist.all_reduce(avg_kl, op=dist.ReduceOp.SUM)
+                dist.all_reduce(avg_rmse, op=dist.ReduceOp.SUM)
+                dist.all_reduce(avg_grad_norm, op=dist.ReduceOp.SUM)
                 avg_loss = avg_loss.item() / dist.get_world_size()
-                avg_kl   = avg_kl.item() / dist.get_world_size()
+                avg_rec_loss = avg_rec_loss.item() / dist.get_world_size()
+                avg_kl = avg_kl.item() / dist.get_world_size()
+                avg_rmse = avg_rmse.item() / dist.get_world_size()
+                avg_grad_norm = avg_grad_norm.item() / dist.get_world_size()
                 if accelerator.is_main_process:
-                    logger.info(f"(step={train_steps:07d}) Train Loss: {avg_loss:.6f}, Train Steps/Sec: {steps_per_sec:.2f}, LR: {scheduler.get_last_lr()[0]:.6f}")
-                    writer.add_scalar('Loss/train_kl', avg_kl, train_steps)
+                    logger.info(f"(step={train_steps:07d}) Train Loss: {avg_loss:.6f}, Rec Loss: {avg_rec_loss:.6f}, KL: {avg_kl:.6f}, RMSE: {avg_rmse:.6f}, Grad Norm: {avg_grad_norm:.6f}, Steps/Sec: {steps_per_sec:.2f}, LR: {scheduler.get_last_lr()[0]:.6f}")
                     writer.add_scalar('Loss/train', avg_loss, train_steps)
+                    writer.add_scalar('Loss/train_rec', avg_rec_loss, train_steps)
+                    writer.add_scalar('Loss/train_kl', avg_kl, train_steps)
+                    writer.add_scalar('Loss/train_rmse', avg_rmse, train_steps)
+                    writer.add_scalar('Training/grad_norm', avg_grad_norm, train_steps)
                 # Reset monitoring variables:
                 running_loss = 0
+                running_rec_loss = 0
                 running_kl_loss = 0
+                running_rmse = 0
+                running_grad_norm = 0
                 log_steps = 0
                 start_time = time()
 
@@ -275,6 +322,8 @@ def do_train(train_config, accelerator):
                         
                         total_val_loss = 0.0
                         total_rec_loss = 0.0
+                        total_kl_loss = 0.0
+                        total_rmse = 0.0
                         num_batches = 0
                         
                         save_mesh_dir = f'{experiment_dir}/mesh_{train_steps}'
@@ -286,9 +335,11 @@ def do_train(train_config, accelerator):
                             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                                 with torch.no_grad():
                                     recon, posterior, z  = ema(x1, cond=y, mask=mask, sample_posterior=False)
-                                    val_loss, rec_loss, _ = loss_vae(x1, recon, posterior, mask=mask, kl_weight=train_config['train']['kl_weight'], num_bins=train_config['data']['num_bins'], decoder_type=train_config['model']['decoder_type'])
+                                    val_loss, rec_loss, kl_loss, rmse = loss_vae(x1, recon, posterior, mask=mask, kl_weight=train_config['train']['kl_weight'], num_bins=train_config['data']['num_bins'], decoder_type=train_config['model']['decoder_type'])
                                     total_val_loss += val_loss.item()
                                     total_rec_loss += rec_loss.item()
+                                    total_kl_loss += kl_loss.item()
+                                    total_rmse += rmse.item()
                                     num_batches += 1
                                     
                                     if i < 5:
@@ -308,8 +359,13 @@ def do_train(train_config, accelerator):
                         if num_batches > 0:
                             avg_val_loss = total_val_loss / num_batches
                             avg_rec_loss = total_rec_loss / num_batches
-                        logger.info(f"Validation Loss: {avg_val_loss:.4f}")
+                            avg_kl_loss = total_kl_loss / num_batches
+                            avg_rmse = total_rmse / num_batches
+                        logger.info(f"Validation - Loss: {avg_val_loss:.6f}, Rec Loss: {avg_rec_loss:.6f}, KL: {avg_kl_loss:.6f}, RMSE: {avg_rmse:.6f}")
                         writer.add_scalar('Loss/validation', avg_val_loss, train_steps)
+                        writer.add_scalar('Loss/validation_rec', avg_rec_loss, train_steps)
+                        writer.add_scalar('Loss/validation_kl', avg_kl_loss, train_steps)
+                        writer.add_scalar('Loss/validation_rmse', avg_rmse, train_steps)
                     model.train()
             if train_steps >= train_config['train']['max_steps']:
                 break

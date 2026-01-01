@@ -37,7 +37,8 @@ class AutoencoderKL(nn.Module):
                  latent_channels=3,
                  decoder_type="reg",
                  num_bins=256,
-                 use_rmsnorm=False):
+                 use_rmsnorm=False,
+                 face_bin=10):
         super().__init__()
         
         self.latent_channels = latent_channels
@@ -46,8 +47,8 @@ class AutoencoderKL(nn.Module):
 
         self.post_quant_linear = nn.Linear(latent_channels, hidden_dim)   
         
-        self.encoder = Model(hidden_dim=hidden_dim, model_type='encoder', num_bins=num_bins, use_rmsnorm=use_rmsnorm) # encoder 
-        self.decoder = Model(hidden_dim=hidden_dim, model_type='decoder', decoder_type=decoder_type, num_bins=num_bins, use_rmsnorm=use_rmsnorm) # decoder   
+        self.encoder = Model(hidden_dim=hidden_dim, model_type='encoder', num_bins=num_bins, use_rmsnorm=use_rmsnorm, face_bin=face_bin) # encoder 
+        self.decoder = Model(hidden_dim=hidden_dim, model_type='decoder', decoder_type=decoder_type, num_bins=num_bins, use_rmsnorm=use_rmsnorm, face_bin=face_bin) # decoder   
         
     def encode(self, x, cond, mask):
         """
@@ -136,7 +137,7 @@ class Model(nn.Module):
                  num_layers=6, gradient_checkpointing=True, 
                  class_dropout_prob=0.1, use_coord_encoding=True, 
                  version=3, pe_freq=20, mixed_precision='bf16',
-                 use_dit_like_pe=False, face_cond=True, face_bin=10,
+                 use_dit_like_pe=False, face_cond=True, face_bin=100,
                  use_rmsnorm=False, 
                  model_type='encoder',
                  decoder_type="reg",
@@ -311,7 +312,9 @@ def loss_vae(inputs, recon, posterior, mask=None, kl_weight=1e-6, decoder_type="
         # normal_diff = 1.0 - cosine_sim # [B, N]
         # normal_loss = _masked_mean(normal_diff, mask)
         # rec_diff += normal_loss * normal_weight
-        
+    mse = (inputs - recon) ** 2
+    mse_loss = _masked_mean(mse, mask)
+    
     kl_diff = posterior.kl() # [B, N] or [B, N, C]
 
     rec_loss = _masked_mean(rec_diff, mask)
@@ -320,7 +323,7 @@ def loss_vae(inputs, recon, posterior, mask=None, kl_weight=1e-6, decoder_type="
     # 3. 加权求和
     loss = rec_loss + kl_weight * kl_loss
     
-    return loss, rec_loss, kl_loss
+    return loss, rec_loss, kl_loss, torch.sqrt(mse_loss)
 
 
 

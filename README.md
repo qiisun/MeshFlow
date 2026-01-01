@@ -116,11 +116,11 @@ wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/vae_ckpts_1e-3/00
 # wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/vae_ckpts/0130000.pt
 cd ../../..
 
-CUDA_VISIBLE_DEVICES=6, \
+CUDA_VISIBLE_DEVICES=5, \
 python eval_vae.py \
-  --config configs/vae.yaml \
-  --checkpoint output/vae_rms_lamp/checkpoints/0030000.pt \
-  --output_dir output/vae_rms_lamp/eval_samples \
+  --config configs/vae_ch4_1e-2.yaml \
+  --checkpoint output/vae_rms_lamp_ch4/checkpoints/0027000.pt \
+  --output_dir output/vae_rms_lamp_ch4/eval_samples \
   --num_save 40
 ```
 

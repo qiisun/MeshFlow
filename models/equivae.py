@@ -38,28 +38,54 @@ class AutoencoderKL(nn.Module):
                  decoder_type="reg",
                  num_bins=256,
                  use_rmsnorm=False,
-                 face_bin=10):
+                 face_bin=10,
+                 deterministic=False,
+                 use_identity_encoder=False,
+                 fixed_std=0.0):
         super().__init__()
         
         self.latent_channels = latent_channels
         self.num_bins = num_bins
-        self.quant_linear = nn.Linear(hidden_dim, 2 * latent_channels) # 9 -> 4*2
-
-        self.post_quant_linear = nn.Linear(latent_channels, hidden_dim)   
         
-        self.encoder = Model(hidden_dim=hidden_dim, model_type='encoder', num_bins=num_bins, use_rmsnorm=use_rmsnorm, face_bin=face_bin) # encoder 
-        self.decoder = Model(hidden_dim=hidden_dim, model_type='decoder', decoder_type=decoder_type, num_bins=num_bins, use_rmsnorm=use_rmsnorm, face_bin=face_bin) # decoder   
+        self.use_identity_encoder = use_identity_encoder
+        self.fixed_std = fixed_std
+        self.deterministic = deterministic
+
+           
+        if self.use_identity_encoder:
+            print(f"[AutoencoderKL] Using Identity/Linear Encoder with Fixed Std: {self.fixed_std}")
+            self.encoder = None 
+            self.quant_linear = None 
+            self.input_proj = nn.Identity()
+        else:
+            self.encoder = Model(hidden_dim=hidden_dim, model_type='encoder', num_bins=num_bins, use_rmsnorm=use_rmsnorm, face_bin=face_bin) # encoder 
+            self.quant_linear = nn.Linear(hidden_dim, 2 * latent_channels) # 9 -> 4*2
+        
+        self.post_quant_linear = nn.Linear(latent_channels, hidden_dim)
+        self.decoder = Model(hidden_dim=hidden_dim, model_type='decoder', decoder_type=decoder_type, num_bins=num_bins, use_rmsnorm=use_rmsnorm, face_bin=face_bin,
+                             use_identity_encoder=use_identity_encoder) # decoder   
         
     def encode(self, x, cond, mask):
         """
         Input: [B, N, 9]
         Output Posterior over: [B, 3*N, latent_dim]
         """
-        h = self.encoder(x, cond, mask)
-        moments = self.quant_linear(h)
+        if self.use_identity_encoder:
+            b, n, _ = x.shape
+            x = x.view(b, -1, 3) # [B, N*3, 3]  
+            mean = self.input_proj(x) # [B, N, latent_channels]
+            if self.fixed_std > 0:
+                fixed_logvar_val = 2 * math.log(self.fixed_std)
+                logvar = torch.full_like(mean, fixed_logvar_val)
+            else:
+                logvar = torch.full_like(mean, -20.0) 
+            moments = torch.cat([mean, logvar], dim=-1)
+        else:
+            h = self.encoder(x, cond, mask)
+            moments = self.quant_linear(h)
+            
         mask_expanded = mask.repeat_interleave(3, dim=1)
-
-        posterior = DiagonalGaussianDistribution(moments, mask=mask_expanded)
+        posterior = DiagonalGaussianDistribution(moments, mask=mask_expanded, deterministic=self.deterministic)
         return posterior
     
     def decode(self, z, cond, mask):
@@ -84,6 +110,10 @@ class AutoencoderKL(nn.Module):
         else:
             z = posterior.mode() # z[mask.unsqueeze(2).repeat(1,1,3).reshape(bs, -1)]
         reconstruction = self.decode(z, cond, mask)
+        
+        if self.use_identity_encoder:
+            z = z.reshape(reconstruction.shape[0], reconstruction.shape[1], -1) # [B, N*3, 3]
+            reconstruction += z
         return reconstruction, posterior, z
 
 class DiagonalGaussianDistribution(object):
@@ -94,7 +124,7 @@ class DiagonalGaussianDistribution(object):
         """
         self.parameters = parameters
         self.mean, self.logvar = torch.chunk(parameters, 2, dim=-1)
-        self.logvar = torch.clamp(self.logvar, -30.0, 20.0)
+        self.logvar = torch.clamp(self.logvar, -20.0, 20.0)
         self.deterministic = deterministic
         self.std = torch.exp(0.5 * self.logvar)
         self.var = torch.exp(self.logvar)
@@ -129,7 +159,6 @@ class DiagonalGaussianDistribution(object):
                 m = self.mask
             kl_val = kl_val * m
         return kl_val
-       
 
 # modelify from equiDIT
 class Model(nn.Module):
@@ -141,13 +170,15 @@ class Model(nn.Module):
                  use_rmsnorm=False, 
                  model_type='encoder',
                  decoder_type="reg",
-                 num_bins=512):
+                 num_bins=512,
+                 use_identity_encoder=False):
         super().__init__()
         self.model_type = model_type
         self.decoder_type = decoder_type
         self.use_dit_like_pe = use_dit_like_pe
         self.kl_weight = 1e-6
         self.use_l1_loss = True
+        self.use_identity_encoder = use_identity_encoder
 
         input_dim = 3 if version > 1 else 9
         self.version = version
@@ -208,6 +239,10 @@ class Model(nn.Module):
         if self.model_type == "encoder":     
             nn.init.normal_(self.x_embedder.mlp[0].weight, std=0.02)
             nn.init.normal_(self.x_embedder.mlp[2].weight, std=0.02)
+        
+        if self.use_identity_encoder:
+            nn.init.constant_(self.final_layer.linear.weight, 0)
+            nn.init.constant_(self.final_layer.linear.bias, 0)
     
     def forward(self, x, y, mask=None):
         # x: [B, N, C], hidden states
@@ -295,7 +330,10 @@ def compute_face_normals(vertices):
     normals = F.normalize(normals, dim=-1, p=2, eps=1e-6)
     return normals
 
-def loss_vae(inputs, recon, posterior, mask=None, kl_weight=1e-6, decoder_type="reg", num_bins=512, normal_weight=1e-3):
+def loss_vae(inputs, recon, posterior, mask=None, kl_weight=1e-6, decoder_type="reg", num_bins=512,
+             normal_weight=1e-3,
+             loss_type="mse",
+             fixed_std=0.0):
     # 1. 计算原始 diff
     if decoder_type == "cls":
         target_idx = float_to_index(inputs, num_bins=num_bins).to(inputs.device) # [B, N, 9] long type
@@ -312,25 +350,31 @@ def loss_vae(inputs, recon, posterior, mask=None, kl_weight=1e-6, decoder_type="
         # normal_diff = 1.0 - cosine_sim # [B, N]
         # normal_loss = _masked_mean(normal_diff, mask)
         # rec_diff += normal_loss * normal_weight
-    mse = (inputs - recon) ** 2
+    if fixed_std > 0:
+        mse = (inputs - recon) ** 2 / fixed_std**2
+    else:
+        mse = (inputs - recon) ** 2
     mse_loss = _masked_mean(mse, mask)
     
     kl_diff = posterior.kl() # [B, N] or [B, N, C]
 
-    rec_loss = _masked_mean(rec_diff, mask)
+    mae_loss = _masked_mean(rec_diff, mask) 
+    rec_loss = mae_loss if loss_type == "mae" else mse_loss
     kl_loss = _masked_mean(kl_diff, mask)
 
     # 3. 加权求和
     loss = rec_loss + kl_weight * kl_loss
-    
     return loss, rec_loss, kl_loss, torch.sqrt(mse_loss)
-
-
 
 if __name__ == '__main__':    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     n, c = 800, 9
-    model = AutoencoderKL(latent_channels=4).cuda()
+    # model = AutoencoderKL(latent_channels=4).cuda()
+    model = AutoencoderKL(
+        latent_channels=3,         
+        use_identity_encoder=True, 
+        fixed_std=0.01         
+    ).to(device)
 
     x = torch.randn(2, n, c).cuda() # Batch=2
     cond = torch.randint(0, 16, (2,)).cuda() # Batch=2
@@ -339,6 +383,7 @@ if __name__ == '__main__':
     with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
         recon, posterior, z = model(x, cond=cond, mask=mask)
 
-    loss, rec_l, kl_l = loss_vae(x, recon, posterior, mask=mask)
+    loss, rec_l, kl_l, rmse = loss_vae(x, recon, posterior, mask=mask)
+    print(f"Loss: {loss}, Rec Loss: {rec_l}, KL Loss: {kl_l}, RMSE: {rmse}")
     model.eval()
     

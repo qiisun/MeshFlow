@@ -90,7 +90,9 @@ def do_train(train_config, accelerator):
                           decoder_type=train_config['model']['decoder_type'],
                           num_bins=train_config['data']['num_bins'],
                           use_rmsnorm=train_config['model']['use_rms'],
-                          face_bin=train_config['model']['face_bin'])
+                          face_bin=train_config['model']['face_bin'],
+                          fixed_std=train_config['model']['fixed_std'] if 'fixed_std' in train_config['model'] else 0.0,
+                          use_identity_encoder=train_config['model']['use_identity_encoder'] if 'use_identity_encoder' in train_config['model'] else False)
     ema = deepcopy(model).to(device)  # Create an EMA of the model for use after training
 
     # load pretrained model
@@ -219,7 +221,7 @@ def do_train(train_config, accelerator):
                 x1 = x1.to(device)
                 y = y.to(device)
             recon, posterior, z = model(x1, cond=y, mask=mask)        
-            loss, rec_l, kl_l, rmse = loss_vae(x1, recon, posterior, mask=mask, kl_weight=train_config['train']['kl_weight'], num_bins=train_config['data']['num_bins'], decoder_type=train_config['model']['decoder_type'])
+            loss, rec_l, kl_l, rmse = loss_vae(x1, recon, posterior, mask=mask, kl_weight=train_config['train']['kl_weight'], num_bins=train_config['data']['num_bins'], decoder_type=train_config['model']['decoder_type'], loss_type=train_config['train']['loss_type'], fixed_std=train_config['model']['fixed_std'])
             # loss = loss_dict["loss"].mean()
             opt.zero_grad()
             accelerator.backward(loss)

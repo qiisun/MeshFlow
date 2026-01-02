@@ -36,7 +36,7 @@ model:
   num_layers: 12
   gradient_checkpointing: False
   use_coord_encoding: False # False for latent diffusion
-  version: 1
+  version: 3
   pe_freq: 20
   mixed_precision:
   use_dit_like_pe: False

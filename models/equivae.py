@@ -351,7 +351,7 @@ def loss_vae(inputs, recon, posterior, mask=None, kl_weight=1e-6, decoder_type="
         # normal_loss = _masked_mean(normal_diff, mask)
         # rec_diff += normal_loss * normal_weight
     if fixed_std > 0:
-        mse = (inputs - recon) ** 2 / fixed_std**2
+        mse = (inputs - recon) ** 2
     else:
         mse = (inputs - recon) ** 2
     mse_loss = _masked_mean(mse, mask)
@@ -362,7 +362,6 @@ def loss_vae(inputs, recon, posterior, mask=None, kl_weight=1e-6, decoder_type="
     rec_loss = mae_loss if loss_type == "mae" else mse_loss
     kl_loss = _masked_mean(kl_diff, mask)
 
-    # 3. 加权求和
     loss = rec_loss + kl_weight * kl_loss
     return loss, rec_loss, kl_loss, torch.sqrt(mse_loss)
 

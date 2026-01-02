@@ -117,10 +117,10 @@ wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/vae_ckpts_1e-3/00
 cd ../../..
 
 CUDA_VISIBLE_DEVICES=0, \
-python eval_vae.py \
-  --config configs/vae_ch4_1e-2.yaml \
-  --checkpoint output/vae_rms_lamp_ch4/checkpoints/00000.pt \
-  --output_dir output/vae_rms_lamp_ch4/eval_samples \
+accelerate launch eval_vae.py \
+  --config configs/vae_ch2_1e-2.yaml \
+  --checkpoint output/vae_rms_lamp_ch2/checkpoints/0093000.pt \
+  --output_dir output/vae_rms_lamp_ch2/eval_samples \
   --num_save 40
 ```
 
@@ -145,4 +145,17 @@ CUDA_VISIBLE_DEVICES=6, python partfield_inference.py -c configs/final/demo.yaml
 cd ../..
 python tools/merge_feature.py
 bash tools/run_train_421a.sh configs/base.yaml
+```
+
+
+
+
+### post-processing
+
+```bash
+python post_mesh.py \
+  --config configs/vae_fixed.yaml \
+  --checkpoint ./output/vae_rms_fixed_002/checkpoints/0096000.pt \
+  --input_folder output/vae_rms_lamp_ch2/eval_samples \
+  --output_dir output/post/processed
 ```

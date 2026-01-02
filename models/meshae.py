@@ -92,9 +92,7 @@ class MeshVAE(Module):
         )
 
         # --- 3. VAE Bottleneck (修改部分) ---
-        # 不再使用 Quantizer，而是投影到 Mean 和 LogVar
         self.dim_latent = dim_latent
-        # 投影到 2 * dim_latent (前一半是 mu, 后一半是 logvar)
         self.to_latent_dist = nn.Linear(encoder_dim, dim_latent * 2)
         
         self.pad_id = pad_id

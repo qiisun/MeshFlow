@@ -46,7 +46,7 @@ def save_mesh(tokens: np.ndarray, path: str, clean: bool = True, num_bins=2048, 
         vertices = coords
 
         faces = np.arange(len(vertices)).reshape(-1, 3)
-        vertices = vertices[:, [2, 1, 0]]  # zyx to xyz
+        # vertices = vertices[:, [2, 1, 0]]  # zyx to xyz
 
         return vertices, faces
 

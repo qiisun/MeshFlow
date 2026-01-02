@@ -7,7 +7,6 @@ from tqdm import tqdm
 from functools import partial
 from accelerate import Accelerator
 
-# 假设你的模型定义在这里
 from models.equivae import loss_vae, AutoencoderKL, float_to_index, index_to_float
 from datasets.mesh_dataset import ObjaverseDataset, collate_fn, save_mesh
 
@@ -22,7 +21,6 @@ def evaluate(args):
     
     # 创建保存目录
     os.makedirs(args.output_dir, exist_ok=True)
-    # 专门为不同噪声比重创建子文件夹
     sampling_dir = os.path.join(args.output_dir, "sampling_analysis")
     os.makedirs(sampling_dir, exist_ok=True)
 
@@ -103,34 +101,26 @@ def evaluate(args):
 
             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                 recon, posterior, z = model(x, cond=y, mask=mask, sample_posterior=True)
+                recon = x + torch.randn_like(x) * 0.02
                 loss, rec_l, kl_l, mae = loss_vae(
                     x, recon, posterior, mask=mask, 
                     kl_weight=config['train']['kl_weight'],
                     decoder_type=decoder_type,
                     num_bins=num_bins
                 )
-
             total_loss += loss.item()
             total_rec += rec_l.item()
             total_kl += kl_l.item()
             
-            valid_means = posterior.mean.reshape(bs, n_face, -1)[mask] # Flattened [Total_Valid_Tris, C]
-            valid_stds = posterior.std.reshape(bs, n_face, -1)[mask]   # Flattened [Total_Valid_Tris, C]
+            valid_means = posterior.mean.reshape(bs, n_face, -1)[mask]
+            valid_stds = posterior.std.reshape(bs, n_face, -1)[mask]
             
-            # 为了节省显存，转到 CPU 并 detach
             all_means.append(valid_means.float().cpu())
             all_stds.append(valid_stds.float().cpu())
-            
             num_batches += 1
             
-
-            # =========================================================
-            # [Core Feature] 详细采样分析 (Noise Scale Analysis)
-            # =========================================================
-            # 只对每个 batch 的第一个样本，或者前几个样本做深度分析
-            if i < num_detailed_samples:
+            if i < 0:
                 idx = 0 
-                # 如果是 AutoencoderKL 输出的 posterior 对象：
                 curr_mean = posterior.mean[idx:idx+1] # [1, N, C]
                 curr_std = posterior.std[idx:idx+1]   # [1, N, C]
                 curr_mask = mask[idx:idx+1]

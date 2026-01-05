@@ -30,7 +30,7 @@ model:
   num_heads: 12
   max_length: 800
   input_dim: 9
-  num_layers: 12
+  num_layers: 6
   gradient_checkpointing: False
   use_coord_encoding: True
   version: 3
@@ -51,13 +51,13 @@ train:
   global_batch_size: 128 #768
   global_seed: 0
   output_dir: 'output'
-  exp_name: 'vae_rms_fixed_002' # <---- experiment name, set as you like
+  exp_name: 'vae_rms_fixed_002_berhu' # <---- experiment name, set as you like
   ckpt: null
   log_every: 100
   ckpt_every: 3000 # 100 for debug
   kl_weight: 0.000
   resume: False
-  loss_type: "mse"
+  loss_type: "berhu"
 
 optimizer:
   lr: 0.00001 # 1e-4

@@ -1,0 +1,64 @@
+# we recommend to read config_details.yaml first.
+ckpt_path: 'path/to/your/checkpoint.pt' # <---- download our pre-trained lightningdit or your own checkpoint
+
+data:
+  valid_path: 'debug/valid'
+  data_path: 'downloaded_data/shapenet-03636649' # 'downloaded_data/objaverse'
+
+  # recommend to use default settings
+  num_workers: 8
+  latent_norm: true
+  latent_multiplier: 1.0
+  do_dataset_normalize: True
+  noise_sort: 'ot'
+  max_length: 800
+  num_bins: 256  # quantize final results
+  use_rot_aug: True  # <---- whether to use rotation augmentation when training
+  use_scale_aug: True  # <---- whether to use scaling augmentation when training
+  use_repa: False
+
+# recommend to use default settings
+model:
+  model_type: "equidit"
+  use_qknorm: false
+  use_swiglu: true
+  use_rope: true
+  use_rmsnorm: true
+  wo_shift: false
+  latent_channels: 3 # same as input channels
+  hidden_dim: 768
+  num_heads: 12
+  max_length: 800
+  input_dim: 9
+  num_layers: 6
+  gradient_checkpointing: False
+  use_coord_encoding: True
+  version: 3
+  pe_freq: 20
+  mixed_precision:
+  use_dit_like_pe: False
+  face_cond: True
+  face_bin: 100
+  decoder_type: "reg"
+  use_rms: True
+  use_identity_encoder: True
+  fixed_std: 0.02
+
+
+# recommend to use default settings
+train:
+  max_steps: 100000
+  global_batch_size: 64 #768
+  global_seed: 0
+  output_dir: 'output'
+  exp_name: 'vae_rms_fixed_002_wmse' # <---- experiment name, set as you like
+  ckpt: null
+  log_every: 100
+  ckpt_every: 3000 # 100 for debug
+  kl_weight: 0.000
+  resume: False
+  loss_type: "weighted_mse"
+
+optimizer:
+  lr: 0.0002 # 1e-4
+  beta2: 0.95

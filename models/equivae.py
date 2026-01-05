@@ -1,3 +1,4 @@
+import re
 import sys
 sys.path.append('.')
 import math
@@ -34,6 +35,8 @@ def index_to_float_np(index, min_val=-0.5, max_val=0.5, num_bins=512):
 class AutoencoderKL(nn.Module):
     def __init__(self, 
                  hidden_dim=768,
+                 num_layers=6,
+                num_heads=12,
                  latent_channels=3,
                  decoder_type="reg",
                  num_bins=256,
@@ -58,12 +61,16 @@ class AutoencoderKL(nn.Module):
             self.quant_linear = None 
             self.input_proj = nn.Identity()
         else:
-            self.encoder = Model(hidden_dim=hidden_dim, model_type='encoder', num_bins=num_bins, use_rmsnorm=use_rmsnorm, face_bin=face_bin) # encoder 
+            self.encoder = Model(hidden_dim=hidden_dim, model_type='encoder', num_bins=num_bins, use_rmsnorm=use_rmsnorm, face_bin=face_bin,
+                                 num_layers=num_layers,
+                             num_heads=num_heads) # encoder 
             self.quant_linear = nn.Linear(hidden_dim, 2 * latent_channels) # 9 -> 4*2
         
         self.post_quant_linear = nn.Linear(latent_channels, hidden_dim)
         self.decoder = Model(hidden_dim=hidden_dim, model_type='decoder', decoder_type=decoder_type, num_bins=num_bins, use_rmsnorm=use_rmsnorm, face_bin=face_bin,
-                             use_identity_encoder=use_identity_encoder) # decoder   
+                             use_identity_encoder=use_identity_encoder,
+                             num_layers=num_layers,
+                             num_heads=num_heads,) # decoder   
         
     def encode(self, x, cond, mask):
         """
@@ -306,16 +313,6 @@ def _masked_mean(x, mask):
     return (x * mask).sum() / (mask.expand_as(x).sum() + 1e-8)
 
 def compute_face_normals(vertices):
-    """
-    计算三角形面的法向量
-    vertices: [B, N, 9] (每个面3个顶点，平铺)
-    return: [B, N, 3] (归一化的法向# The above code is a comment in Python. Comments are used to provide
-    # explanations or notes within the code for better understanding. In
-    # Python, comments start with the `#` symbol and everything after the `#`
-    # on that line is considered a comment and is ignored by the Python
-    # interpreter.
-    量)
-    """
     B, N, _ = vertices.shape
     tris = vertices.view(B, N, 3, 3)
     
@@ -330,40 +327,75 @@ def compute_face_normals(vertices):
     normals = F.normalize(normals, dim=-1, p=2, eps=1e-6)
     return normals
 
-def loss_vae(inputs, recon, posterior, mask=None, kl_weight=1e-6, decoder_type="reg", num_bins=512,
+# @torch.jit.script
+def weighting_from_triangle_soup(inputs: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    x1 = inputs[..., 3] - inputs[..., 0]
+    y1 = inputs[..., 4] - inputs[..., 1]
+    z1 = inputs[..., 5] - inputs[..., 2]
+    
+    x2 = inputs[..., 6] - inputs[..., 0]
+    y2 = inputs[..., 7] - inputs[..., 1]
+    z2 = inputs[..., 8] - inputs[..., 2]
+    cx = y1 * z2 - z1 * y2
+    cy = z1 * x2 - x1 * z2
+    cz = x1 * y2 - y1 * x2
+    area = 0.5 * torch.sqrt(cx*cx + cy*cy + cz*cz + 1e-8)
+    weight = 1 / (1e-7+torch.sqrt(area))
+    return weight * mask
+
+def loss_vae(inputs, recon, posterior, mask=None, kl_weight=0, decoder_type="reg", num_bins=512,
              normal_weight=1e-3,
              loss_type="mse",
-             fixed_std=0.0):
-    # 1. 计算原始 diff
-    if decoder_type == "cls":
-        target_idx = float_to_index(inputs, num_bins=num_bins).to(inputs.device) # [B, N, 9] long type
-        rec_diff = F.cross_entropy(
-            recon.permute(0, 3, 1, 2),  # [B, N, 9, C] -> [B, C, N, 9]
-            target_idx, 
-            reduction='none'
-            )   
-    elif decoder_type == "reg":
-        rec_diff = torch.abs(inputs - recon) # [b, n, 9]
-        # pred_normals = compute_face_normals(recon)   # [B, N, 3]
-        # gt_normals = compute_face_normals(inputs)    # [B, N, 3]
-        # cosine_sim = F.cosine_similarity(pred_normals, gt_normals, dim=-1)
-        # normal_diff = 1.0 - cosine_sim # [B, N]
-        # normal_loss = _masked_mean(normal_diff, mask)
-        # rec_diff += normal_loss * normal_weight
-    if fixed_std > 0:
-        mse = (inputs - recon) ** 2
-    else:
-        mse = (inputs - recon) ** 2
-    mse_loss = _masked_mean(mse, mask)
+             fixed_std=0.0,
+             delta=8e-3,
+             weighting=None):
+    if weighting is None:
+        weighting = weighting_from_triangle_soup(inputs, mask)
     
-    kl_diff = posterior.kl() # [B, N] or [B, N, C]
-
-    mae_loss = _masked_mean(rec_diff, mask) 
-    rec_loss = mae_loss if loss_type == "mae" else mse_loss
-    kl_loss = _masked_mean(kl_diff, mask)
-
-    loss = rec_loss + kl_weight * kl_loss
-    return loss, rec_loss, kl_loss, torch.sqrt(mse_loss)
+    diff = inputs - recon
+    rec_diff_abs = torch.abs(diff)   # L1 (MAE) base
+    mse_elementwise = diff ** 2      # L2 (MSE) base
+    mae_metric = _masked_mean(rec_diff_abs, mask)
+    mse_metric = _masked_mean(mse_elementwise, mask)
+    rmse_metric = torch.sqrt(mse_metric)
+    weighted_abs_diff = rec_diff_abs * weighting[..., None]
+    w_mae_metric = _masked_mean(weighted_abs_diff, mask)
+    if loss_type == 'mae':
+        pixel_loss = rec_diff_abs
+        
+    elif loss_type == "mse":
+        pixel_loss = mse_elementwise / (fixed_std)
+        
+    elif loss_type == "weighted_mse":
+        pixel_loss = mse_elementwise * weighting[..., None]
+        
+    elif loss_type == "weighted_mae":
+        pixel_loss = rec_diff_abs * weighting[..., None]
+        
+    elif loss_type == "huber":
+        huber_loss = torch.where(
+            rec_diff_abs < delta,
+            0.5 * mse_elementwise,
+            delta * (rec_diff_abs - 0.5 * delta)
+        )
+        pixel_loss = huber_loss
+        
+    elif loss_type == "berhu": 
+        berhu_loss = torch.where(
+            rec_diff_abs <= delta,
+            rec_diff_abs,
+            (mse_elementwise + delta**2) / (2 * delta)
+        )
+        pixel_loss = berhu_loss
+        
+    else:
+        raise ValueError(f"Unknown loss_type: {loss_type}")    
+    rec_loss = _masked_mean(pixel_loss, mask)
+    kl_vals = posterior.kl() # [B, N] or [B, N, C]
+    kl_loss = _masked_mean(kl_vals, mask)
+    total_loss = rec_loss + kl_weight * kl_loss
+    
+    return total_loss, kl_loss, mae_metric, rmse_metric, w_mae_metric
 
 if __name__ == '__main__':    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -378,11 +410,12 @@ if __name__ == '__main__':
     x = torch.randn(2, n, c).cuda() # Batch=2
     cond = torch.randint(0, 16, (2,)).cuda() # Batch=2
     mask = torch.ones(2, n).bool().cuda()
+    weighting = torch.randn(2, n).cuda()
 
     with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
         recon, posterior, z = model(x, cond=cond, mask=mask)
 
-    loss, rec_l, kl_l, rmse = loss_vae(x, recon, posterior, mask=mask)
+    loss, rec_l, kl_l, rmse, w_mae_metric = loss_vae(x, recon, posterior, mask=mask, loss_type='mse',
+                                                     weighting = weighting)
     print(f"Loss: {loss}, Rec Loss: {rec_l}, KL Loss: {kl_l}, RMSE: {rmse}")
     model.eval()
-    

@@ -1,20 +1,7 @@
-'''
------------------------------------------------------------------------------
-Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
-
-NVIDIA CORPORATION and its licensors retain all intellectual property
-and proprietary rights in and to this software, related documentation
-and any modifications thereto. Any use, reproduction, disclosure or
-distribution of this software and related documentation without an express
-license agreement from NVIDIA CORPORATION is strictly prohibited.
------------------------------------------------------------------------------
-'''
-
 import os
 import random
 import trimesh
 import numpy as np
-
 import sys
 sys.path.append('.')
 from utils.ot_utils import optimal_sum_numpy
@@ -22,7 +9,6 @@ from models.equivae import float_to_index_np, index_to_float_np
 import torch
 from torch.utils.data import Dataset, DataLoader
 import tqdm
-
 
 
 def generate_custom_prior(num_samples, var_scale=0.05):
@@ -39,7 +25,7 @@ def generate_custom_prior(num_samples, var_scale=0.05):
     return np.concatenate([vertice23, vertice1], axis=1)  # [N, 3, 3]
 
 
-def save_mesh(tokens: np.ndarray, path: str, clean: bool = True, num_bins=2048, max_val=0.5):
+def save_mesh(tokens: np.ndarray, path: str, clean: bool = True, num_bins=2048, max_val=0.95):
     # [N, 3, 3] -> mesh
     def simple_detokenize_mesh(tokens: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         coords = tokens.reshape(-1, 3).astype(np.float32)
@@ -52,7 +38,7 @@ def save_mesh(tokens: np.ndarray, path: str, clean: bool = True, num_bins=2048, 
 
     vertices, faces = simple_detokenize_mesh(tokens=tokens)
     vertices = float_to_index_np(vertices, min_val=-max_val, max_val=max_val, num_bins=num_bins)
-    vertices = index_to_float_np(vertices, min_val=-0.5, max_val=0.5, num_bins=num_bins)
+    vertices = index_to_float_np(vertices, min_val=-max_val, max_val=max_val, num_bins=num_bins)
 
     mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
 
@@ -305,7 +291,6 @@ class ObjaverseDataset(Dataset):
             x_lims = (0.75, 1.25)
             y_lims = (0.75, 1.25)
             z_lims = (0.75, 1.25)
-
             x = np.random.uniform(low=x_lims[0], high=x_lims[1], size=(1,))
             y = np.random.uniform(low=y_lims[0], high=y_lims[1], size=(1,))
             z = np.random.uniform(low=z_lims[0], high=z_lims[1], size=(1,))
@@ -336,43 +321,48 @@ class ObjaverseDataset(Dataset):
             data_dict['noise'] = noise.reshape(faces_num, -1)
             if self.use_repa:
                 data_dict['f_feature'] = f_feature[perm_idx]
-        
-        data_dict['coords'] = coords.reshape(faces_num, -1) 
+        # data_dict['face_area'] = compute_face_area_from_soup(coords) # [F]
+        data_dict['coords'] = coords.reshape(faces_num, -1)  * 0.95/ 0.5
         data_dict['num_faces'] = faces_num
         data_dict['len'] = faces_num
 
         return data_dict
     
 def collate_fn(batch, max_seq_length=800):
-
-    # conds
     num_faces = [item['num_faces'] for item in batch]
 
-    # get max len of this batch
     max_len = max([item['len'] for item in batch])
     max_len = min(max_len, max_seq_length)
     
-    # pad or truncate to max_len, and prepare masks
     tokens = []
     noises = []
     masks = []
     features = []
+    face_areas = []
+    
     input_c = batch[0]['coords'].shape[1] 
         
     for item in batch:
         if max_len >= item['len']:
             pad_len = max_len - item['len']
+            
             tokens.append(np.concatenate([
-                item['coords'], # mesh tokens
-                np.full((pad_len, input_c), 0), # padding
-            ], axis=0)) # [M, 9]
+                item['coords'], 
+                np.full((pad_len, input_c), 0), 
+            ], axis=0)) 
+            
+            if 'face_area' in item:
+                face_areas.append(np.concatenate([
+                    item['face_area'],
+                    np.full((pad_len), 0), 
+                ], axis=0))
             
             if "noise" in item.keys():
                 noises.append(np.concatenate([
-                    item['noise'], # mesh tokens
-                    np.full((pad_len, input_c), 0), # padding
-                ], axis=0)) # [M, 9]
-                
+                    item['noise'], 
+                    np.full((pad_len, input_c), 0), 
+                ], axis=0)) 
+            
             if "f_feature" in item.keys():
                 features.append(np.concatenate([
                     item['f_feature'],
@@ -382,23 +372,33 @@ def collate_fn(batch, max_seq_length=800):
             masks.append(np.concatenate([
                 np.ones(item['len']), 
                 np.zeros(pad_len)
-            ], axis=0)) # [M]
+            ], axis=0))
 
         else:
             tokens.append(np.concatenate([
-                item['coords'][:max_len], # mesh tokens
+                item['coords'][:max_len], 
             ], axis=0))
+
+            # if 'face_area' in item:
+            #     face_areas.append(np.concatenate([
+            #         item['face_area'][:max_len], 
+            #     ], axis=0))
 
             masks.append(np.ones(max_len))
 
     results = {}
     results['num_faces'] = torch.from_numpy(np.stack(num_faces, axis=0)).long()
-    results['tokens'] = torch.from_numpy(np.stack(tokens, axis=0)).float() # [B, M]
+    results['tokens'] = torch.from_numpy(np.stack(tokens, axis=0)).float() 
+    
+    # if len(face_areas) > 0:
+    #     results['face_area'] = torch.from_numpy(np.stack(face_areas, axis=0)).float() 
+        
     if len(noises) > 0:
-        results['noise'] = torch.from_numpy(np.stack(noises, axis=0)).float() # [B, M]
+        results['noise'] = torch.from_numpy(np.stack(noises, axis=0)).float() 
     if len(features) > 0:
-        results['f_feature'] = torch.from_numpy(np.stack(features, axis=0)).float() # [B, M]
+        results['f_feature'] = torch.from_numpy(np.stack(features, axis=0)).float() 
     results['masks'] = torch.from_numpy(np.stack(masks, axis=0)).bool()
+    
     return results
 
 if __name__ == "__main__":

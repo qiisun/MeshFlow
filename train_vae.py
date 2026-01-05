@@ -92,7 +92,11 @@ def do_train(train_config, accelerator):
                           use_rmsnorm=train_config['model']['use_rms'],
                           face_bin=train_config['model']['face_bin'],
                           fixed_std=train_config['model']['fixed_std'] if 'fixed_std' in train_config['model'] else 0.0,
-                          use_identity_encoder=train_config['model']['use_identity_encoder'] if 'use_identity_encoder' in train_config['model'] else False)
+                          use_identity_encoder=train_config['model']['use_identity_encoder'] if 'use_identity_encoder' in train_config['model'] else False,
+                          num_layers=train_config['model']['num_layers'],
+                          num_heads=train_config['model']['num_heads'],
+                          hidden_dim = train_config['model']['hidden_dim']
+    )
     ema = deepcopy(model).to(device)  # Create an EMA of the model for use after training
 
     # load pretrained model
@@ -199,7 +203,8 @@ def do_train(train_config, accelerator):
 
     log_steps = 0
     running_loss = 0
-    running_rec_loss = 0
+    running_mae_loss = 0
+    running_wmae_loss = 0
     running_kl_loss = 0
     running_rmse = 0
     running_grad_norm = 0
@@ -213,6 +218,7 @@ def do_train(train_config, accelerator):
             x1 = data['tokens']
             y = data['num_faces']
             mask = data['masks']
+            # face_area = data['face_area']
 
             if accelerator.mixed_precision == 'no':
                 x1 = x1.to(device, dtype=torch.float32)
@@ -221,7 +227,11 @@ def do_train(train_config, accelerator):
                 x1 = x1.to(device)
                 y = y.to(device)
             recon, posterior, z = model(x1, cond=y, mask=mask)        
-            loss, rec_l, kl_l, rmse = loss_vae(x1, recon, posterior, mask=mask, kl_weight=train_config['train']['kl_weight'], num_bins=train_config['data']['num_bins'], decoder_type=train_config['model']['decoder_type'], loss_type=train_config['train']['loss_type'], fixed_std=train_config['model']['fixed_std'])
+            loss, kl_l, mae,rmse, wmae = loss_vae(x1,
+                                                    recon, 
+                                                    posterior, mask=mask, kl_weight=train_config['train']['kl_weight'], num_bins=train_config['data']['num_bins'], decoder_type=train_config['model']['decoder_type'], loss_type=train_config['train']['loss_type'], fixed_std=train_config['model']['fixed_std'],
+                                                    # weighting=1/torch.sqrt(face_area)
+                                                    )
             # loss = loss_dict["loss"].mean()
             opt.zero_grad()
             accelerator.backward(loss)
@@ -259,7 +269,8 @@ def do_train(train_config, accelerator):
 
             # Log loss values:
             running_loss += loss.item()
-            running_rec_loss += rec_l.item()
+            running_mae_loss += mae.item()
+            running_wmae_loss += wmae.item()
             running_kl_loss += kl_l.item()
             running_rmse += rmse.item()
             running_grad_norm += grad_norm if isinstance(grad_norm, (int, float)) else grad_norm.item()
@@ -272,30 +283,36 @@ def do_train(train_config, accelerator):
                 steps_per_sec = log_steps / (end_time - start_time)
                 # Reduce loss history over all processes:
                 avg_loss = torch.tensor(running_loss / log_steps, device=device)
-                avg_rec_loss = torch.tensor(running_rec_loss / log_steps, device=device)
+                avg_mae_loss = torch.tensor(running_mae_loss / log_steps, device=device)
+                avg_wmae_loss = torch.tensor(running_wmae_loss / log_steps, device=device)
                 avg_kl = torch.tensor(running_kl_loss / log_steps, device=device)
                 avg_rmse = torch.tensor(running_rmse / log_steps, device=device)
                 avg_grad_norm = torch.tensor(running_grad_norm / log_steps, device=device)
                 dist.all_reduce(avg_loss, op=dist.ReduceOp.SUM)
-                dist.all_reduce(avg_rec_loss, op=dist.ReduceOp.SUM)
+                dist.all_reduce(avg_mae_loss, op=dist.ReduceOp.SUM)
+                dist.all_reduce(avg_wmae_loss, op=dist.ReduceOp.SUM)
                 dist.all_reduce(avg_kl, op=dist.ReduceOp.SUM)
                 dist.all_reduce(avg_rmse, op=dist.ReduceOp.SUM)
                 dist.all_reduce(avg_grad_norm, op=dist.ReduceOp.SUM)
                 avg_loss = avg_loss.item() / dist.get_world_size()
-                avg_rec_loss = avg_rec_loss.item() / dist.get_world_size()
+                avg_mae_loss = avg_mae_loss.item() / dist.get_world_size()
+                avg_wmae_loss = avg_wmae_loss.item() / dist.get_world_size()
                 avg_kl = avg_kl.item() / dist.get_world_size()
                 avg_rmse = avg_rmse.item() / dist.get_world_size()
                 avg_grad_norm = avg_grad_norm.item() / dist.get_world_size()
                 if accelerator.is_main_process:
-                    logger.info(f"(step={train_steps:07d}) Train Loss: {avg_loss:.6f}, Rec Loss: {avg_rec_loss:.6f}, KL: {avg_kl:.6f}, RMSE: {avg_rmse:.6f}, Grad Norm: {avg_grad_norm:.6f}, Steps/Sec: {steps_per_sec:.2f}, LR: {scheduler.get_last_lr()[0]:.6f}")
+                    logger.info(f"(step={train_steps:07d}) Train Loss: {avg_loss:.6f}, MAE: {avg_mae_loss:.6f}, WMAE: {avg_wmae_loss:.6f}, KL: {avg_kl:.6f}, RMSE: {avg_rmse:.6f}, Grad Norm: {avg_grad_norm:.6f}, Steps/Sec: {steps_per_sec:.2f}, LR: {scheduler.get_last_lr()[0]:.6f}")
                     writer.add_scalar('Loss/train', avg_loss, train_steps)
-                    writer.add_scalar('Loss/train_rec', avg_rec_loss, train_steps)
+                    writer.add_scalar('Loss/train_mae', avg_mae_loss, train_steps)
+                    writer.add_scalar('Loss/train_wmae', avg_wmae_loss, train_steps)
                     writer.add_scalar('Loss/train_kl', avg_kl, train_steps)
                     writer.add_scalar('Loss/train_rmse', avg_rmse, train_steps)
                     writer.add_scalar('Training/grad_norm', avg_grad_norm, train_steps)
+                    writer.add_scalar('Training/learning_rate', scheduler.get_last_lr()[0], train_steps)
                 # Reset monitoring variables:
                 running_loss = 0
-                running_rec_loss = 0
+                running_mae_loss = 0
+                running_wmae_loss = 0
                 running_kl_loss = 0
                 running_rmse = 0
                 running_grad_norm = 0
@@ -323,7 +340,8 @@ def do_train(train_config, accelerator):
                         logger.info(f"Start evaluating at step {train_steps}")
                         
                         total_val_loss = 0.0
-                        total_rec_loss = 0.0
+                        total_mae_loss = 0.0
+                        total_wmae_loss = 0.0
                         total_kl_loss = 0.0
                         total_rmse = 0.0
                         num_batches = 0
@@ -334,12 +352,19 @@ def do_train(train_config, accelerator):
                             x1 = data['tokens'].to(device)
                             y = data['num_faces'].to(device)
                             mask = data['masks'].to(device)
+                            # face_area = data['face_area'].to(device)
                             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                                 with torch.no_grad():
                                     recon, posterior, z  = ema(x1, cond=y, mask=mask, sample_posterior=False)
-                                    val_loss, rec_loss, kl_loss, rmse = loss_vae(x1, recon, posterior, mask=mask, kl_weight=train_config['train']['kl_weight'], num_bins=train_config['data']['num_bins'], decoder_type=train_config['model']['decoder_type'])
+                                    val_loss, kl_loss, mae, rmse, wmae = loss_vae(x1, 
+                                                                                 recon, posterior, mask=mask, kl_weight=train_config['train']['kl_weight'], num_bins=train_config['data']['num_bins'], 
+                                                                                 decoder_type=train_config['model']['decoder_type'],
+                                                                                 fixed_std=train_config['model']['fixed_std']
+                                                                                #  weighting = 1/torch.sqrt(face_area)
+                                                                                 )
                                     total_val_loss += val_loss.item()
-                                    total_rec_loss += rec_loss.item()
+                                    total_mae_loss += mae.item()
+                                    total_wmae_loss += wmae.item()
                                     total_kl_loss += kl_loss.item()
                                     total_rmse += rmse.item()
                                     num_batches += 1
@@ -360,12 +385,14 @@ def do_train(train_config, accelerator):
 
                         if num_batches > 0:
                             avg_val_loss = total_val_loss / num_batches
-                            avg_rec_loss = total_rec_loss / num_batches
+                            avg_mae_loss = total_mae_loss / num_batches
+                            avg_wmae_loss = total_wmae_loss / num_batches
                             avg_kl_loss = total_kl_loss / num_batches
                             avg_rmse = total_rmse / num_batches
-                        logger.info(f"Validation - Loss: {avg_val_loss:.6f}, Rec Loss: {avg_rec_loss:.6f}, KL: {avg_kl_loss:.6f}, RMSE: {avg_rmse:.6f}")
+                        logger.info(f"Validation - Loss: {avg_val_loss:.6f}, MAE: {avg_mae_loss:.6f}, WMAE: {avg_wmae_loss:.6f},KL: {avg_kl_loss:.6f}, RMSE: {avg_rmse:.6f}")
                         writer.add_scalar('Loss/validation', avg_val_loss, train_steps)
-                        writer.add_scalar('Loss/validation_rec', avg_rec_loss, train_steps)
+                        writer.add_scalar('Loss/validation_mae', avg_mae_loss, train_steps)
+                        writer.add_scalar('Loss/validation_wmae', avg_wmae_loss, train_steps)
                         writer.add_scalar('Loss/validation_kl', avg_kl_loss, train_steps)
                         writer.add_scalar('Loss/validation_rmse', avg_rmse, train_steps)
                     model.train()

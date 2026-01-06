@@ -122,6 +122,8 @@ accelerate launch eval_vae.py \
   --checkpoint output/vae_rms_lamp_ch2/checkpoints/0093000.pt \
   --output_dir output/vae_rms_lamp_ch2/eval_samples \
   --num_save 40
+
+# noisy mesh is in output/vae_rms_lamp_ch2/eval_samples
 ```
 
 
@@ -154,8 +156,15 @@ bash tools/run_train_421a.sh configs/base.yaml
 
 ```bash
 python post_mesh.py \
-  --config configs/vae_fixed.yaml \
-  --checkpoint ./output/vae_rms_fixed_002/checkpoints/0096000.pt \
+  --config configs/vae_fixed_500m.yaml \
+  --checkpoint ./output/vae_rms_fixed_002_mse_scale_500m/checkpoints/0009000.pt \
+  --input_folder output/post/49steps_cfg1 \
+  --output_dir output/post/processed_49_cfg1
+
+
+python post_mesh.py \
+  --config configs/vae_fixed_500m.yaml \
+  --checkpoint ./output/vae_rms_fixed_002_mse_scale_500m/checkpoints/0009000.pt \
   --input_folder output/vae_rms_lamp_ch2/eval_samples \
-  --output_dir output/post/processed
+  --output_dir output/post/check
 ```

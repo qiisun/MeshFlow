@@ -139,7 +139,7 @@ class ObjaverseDataset(Dataset):
             split_uids = set([item['uid'] for item in split])
             print(f"Loaded split {split_filename}, count: {len(split_uids)}")
 
-            folder_prefix = "objaverse_occ_v5_ids_filter_128"
+            folder_prefix = "objaverse_occ_v5_ids" # _filter_128"
 
             if self.training and self.use_decimated_dataset:
                 data_subfolder = f"{folder_prefix}_decimated"

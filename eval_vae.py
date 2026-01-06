@@ -102,7 +102,7 @@ def evaluate(args):
             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                 recon, posterior, z = model(x, cond=y, mask=mask, sample_posterior=True)
                 recon = x + torch.randn_like(x) * 0.02
-                loss, rec_l, kl_l, mae = loss_vae(
+                loss, kl_l, rec_l, mae, wmae = loss_vae(
                     x, recon, posterior, mask=mask, 
                     kl_weight=config['train']['kl_weight'],
                     decoder_type=decoder_type,

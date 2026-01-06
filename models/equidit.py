@@ -140,7 +140,7 @@ class XEmbedder(nn.Module):
         )
         self.hidden_size = hidden_size
 
-    def x_embedding(self, x, max_period=10.): # [N, 9] -> [N, 180]
+    def x_embedding(self, x, max_period=1.): # [N, 9] -> [N, 180]
         return self.embed_fn(x / max_period + 0.5) # renormalize to [0, 1]
     
     def forward(self, x):

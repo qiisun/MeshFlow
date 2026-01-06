@@ -16,8 +16,7 @@ def load_config(config_path):
 
 def preprocess_mesh(mesh_path, max_seq_length=800):
     mesh = trimesh.load(mesh_path, process=False)
-    vertices = mesh.vertices
-    # vertices = (vertices - 0.5) / 2
+    vertices = mesh.vertices # [-0.95, 0.95]
     faces = mesh.faces
     face_vertices = vertices[faces].reshape(-1, 3) 
     current_faces = min(len(faces), max_seq_length)
@@ -50,7 +49,10 @@ def run_inference(args):
                           use_rmsnorm=config['model']['use_rms'],
                           face_bin=config['model']['face_bin'],
                           fixed_std=config['model']['fixed_std'] if 'fixed_std' in config['model'] else 0.0,
-                          use_identity_encoder=config['model']['use_identity_encoder'] if 'use_identity_encoder' in config['model'] else False).to(device)
+                          use_identity_encoder=config['model']['use_identity_encoder'] if 'use_identity_encoder' in config['model'] else False,
+                          hidden_dim=config['model']['hidden_dim'],
+                          num_layers=config['model']['num_layers'],
+                          num_heads=config['model']['num_heads']).to(device)
     model.eval()
 
     # 2. Load Checkpoint
@@ -75,6 +77,7 @@ def run_inference(args):
         with torch.no_grad():
             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                 recon = model.decode(x.reshape(1, -1, 3), cond=num_faces, mask=mask) + x
+                # recon, _, _ = model(x, cond=num_faces, mask=mask)
         
         recon_coords = recon # continuous output
         valid_recon = recon_coords[mask].reshape(-1, 3, 3).float().cpu().numpy()            

@@ -229,7 +229,9 @@ def do_train(train_config, accelerator):
             recon, posterior, z = model(x1, cond=y, mask=mask)        
             loss, kl_l, mae,rmse, wmae = loss_vae(x1,
                                                     recon, 
-                                                    posterior, mask=mask, kl_weight=train_config['train']['kl_weight'], num_bins=train_config['data']['num_bins'], decoder_type=train_config['model']['decoder_type'], loss_type=train_config['train']['loss_type'], fixed_std=train_config['model']['fixed_std'],
+                                                    posterior, mask=mask, kl_weight=train_config['train']['kl_weight'], num_bins=train_config['data']['num_bins'], decoder_type=train_config['model']['decoder_type'],
+                                                    loss_type=train_config['train']['loss_type'], 
+                                                    fixed_std=train_config['model']['fixed_std'],
                                                     # weighting=1/torch.sqrt(face_area)
                                                     )
             # loss = loss_dict["loss"].mean()
@@ -359,7 +361,8 @@ def do_train(train_config, accelerator):
                                     val_loss, kl_loss, mae, rmse, wmae = loss_vae(x1, 
                                                                                  recon, posterior, mask=mask, kl_weight=train_config['train']['kl_weight'], num_bins=train_config['data']['num_bins'], 
                                                                                  decoder_type=train_config['model']['decoder_type'],
-                                                                                 fixed_std=train_config['model']['fixed_std']
+                                                                                 fixed_std=train_config['model']['fixed_std'],
+                                                                                 loss_type=train_config['train']['loss_type'],
                                                                                 #  weighting = 1/torch.sqrt(face_area)
                                                                                  )
                                     total_val_loss += val_loss.item()

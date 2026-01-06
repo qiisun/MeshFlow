@@ -40,7 +40,7 @@ class AutoencoderKL(nn.Module):
                  latent_channels=3,
                  decoder_type="reg",
                  num_bins=256,
-                 use_rmsnorm=False,
+                 use_rmsnorm=True,
                  face_bin=10,
                  deterministic=False,
                  use_identity_encoder=False,

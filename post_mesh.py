@@ -17,6 +17,7 @@ def load_config(config_path):
 def preprocess_mesh(mesh_path, max_seq_length=800):
     mesh = trimesh.load(mesh_path, process=False)
     vertices = mesh.vertices # [-0.95, 0.95]
+    # print(vertices.min(), vertices.max())
     faces = mesh.faces
     face_vertices = vertices[faces].reshape(-1, 3) 
     current_faces = min(len(faces), max_seq_length)

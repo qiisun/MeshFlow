@@ -1,20 +1,15 @@
 # MeshFlow
-
 MeshFlow based on lightingDiT.
-
-
 ### TODO
 - [x] clean code
 - [x] simple train & test
 - [x] implement jit
-- [x] DDP for single-node multi-card training  (test error in evaluation, fixed)
+- [x] DDP for single-node multi-card training (test error in evaluation, fixed)
 - [ ] dynamic allocator
 - [x] prepare shapenet dataset (full)
 - [x] prepare objaverse dataset
 
-
 ### Environment
-
 ```bash
 conda create -n mflow python=3.10 -y
 conda activate mflow
@@ -45,12 +40,9 @@ cd third_party/Hunyuan3D-Part/P3-SAM
 
 pip install viser fpsample trimesh numba gradio
 CUDA_VISIBLE_DEVICES=6, python auto_mask.py --mesh_path assets --output_path results/all
-
 ```
 
-
 ### dataset
-
 ```bash
 mkdir downloaded_data
 cd downloaded_data
@@ -58,11 +50,9 @@ wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/dummy.ta
 tar xf dummy.tar.gz
 rm dummy.tar.gz
 
-
 wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/shapenet.tar.gz # or objaverse
 tar xf shapenet.tar.gz
 rm shapenet.tar.gz
-
 
 wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/objaverse_occ_v5_ids.tar.gz 
 wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/split.tar.gz
@@ -73,7 +63,6 @@ rm split.tar.gz
 mkdir objaverse
 mv objaverse_occ_v5_ids objaverse
 mv split objaverse
-
 
 wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/shapenet-cls.tar.gz
 tar xf shapenet-cls.tar.gz
@@ -108,7 +97,6 @@ accelerate launch eval_ldm.py \
 bash tools/run_trainvae.sh configs/vae.yaml # regression loss
 bash tools/run_trainvae.sh configs/vae_cls.yaml # classification loss
 
-
 # eval auto-encoder (L1 loss)
 mkdir -p output/vae_rms_lamp/checkpoints
 cd output/vae_rms_lamp/checkpoints
@@ -126,45 +114,56 @@ accelerate launch eval_vae.py \
 # noisy mesh is in output/vae_rms_lamp_ch2/eval_samples
 ```
 
-
 ### Run JIT on dummy
-
 ```bash
 # training
 bash tools/run_train.sh configs/base_jit.yaml
-
 CUDA_VISIBLE_DEVICES=6, python train_pixel_single.py --config configs/base_jit.yaml
 ```
 
-
 ### Extract feature
-
 ```bash
 cd third_party/PartField
 CUDA_VISIBLE_DEVICES=6, python partfield_inference.py -c configs/final/demo.yaml --opts continue_ckpt model/model_objaverse.ckpt result_name partfield_features/objaverse dataset.data_path ../../downloaded_data/dummy/objaverse_occ_v5_ids
-# 注意如果有文件的话，会跳过
 
 cd ../..
 python tools/merge_feature.py
 bash tools/run_train_421a.sh configs/base.yaml
 ```
 
-
-
-
 ### post-processing
-
 ```bash
 python post_mesh.py \
-  --config configs/vae_fixed_500m.yaml \
-  --checkpoint ./output/vae_rms_fixed_002_mse_scale_500m/checkpoints/0009000.pt \
+  --config configs/vae_fixed_120m.yaml \
+  --checkpoint ./output/vae_rms_fixed_002_mse_scale_120m/checkpoints/0009000.pt \
   --input_folder output/post/49steps_cfg1 \
   --output_dir output/post/processed_49_cfg1
 
+python post_mesh.py \
+  --config configs/vae_fixed_120m.yaml \
+  --checkpoint ./output/vae_rms_fixed_002_mse_scale_120m/checkpoints/0009000.pt \
+  --input_folder output/post/002_noise_train \
+  --output_dir output/post/check_train_norela
+python post_mesh.py \
+  --config configs/vae_fixed_120m.yaml \
+  --checkpoint ./output/vae_rms_fixed_002_wmse/checkpoints/0009000.pt \
+  --input_folder output/post/002_noise_train \
+  --output_dir output/post/check_train_rela
+python post_mesh.py \
+  --config configs/vae_fixed_120m.yaml \
+  --checkpoint ./output/vae_rms_fixed_002_mse_scale_120m/checkpoints/0009000.pt \
+  --input_folder output/post/002_noise_valid \
+  --output_dir output/post/check_test_norela
 
 python post_mesh.py \
   --config configs/vae_fixed_500m.yaml \
-  --checkpoint ./output/vae_rms_fixed_002_mse_scale_500m/checkpoints/0009000.pt \
-  --input_folder output/vae_rms_lamp_ch2/eval_samples \
-  --output_dir output/post/check
+  --checkpoint ./output/vae_rms_fixed_002_mse_scale_500m/checkpoints/0021000.pt \
+  --input_folder output/post/002_noise_valid \
+  --output_dir output/post/check_test_500m
+
+python post_mesh.py \
+  --config configs/vae_fixed_500m.yaml \
+  --checkpoint ./output/vae_rms_fixed_002_mse_scale_500m/checkpoints/0021000.pt \
+  --input_folder output/post/gen_50steps_cfg1 \
+  --output_dir output/post/preprocess_
 ```

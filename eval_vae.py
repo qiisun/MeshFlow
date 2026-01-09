@@ -52,7 +52,7 @@ def evaluate(args):
     # Setup Dataset
     dataset = ObjaverseDataset(
         data_pth=config['data']['data_path'],
-        training=False, 
+        training=True, 
         noise_sort=False,
         use_custom_prior=config['data'].get('use_custom_prior', False),
         use_decimated_dataset=config['data'].get('use_decimated_dataset', False),
@@ -98,7 +98,6 @@ def evaluate(args):
             bs, n_face, _ = x.shape
             y = data['num_faces'].to(device)
             mask = data['masks'].to(device)
-
             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                 recon, posterior, z = model(x, cond=y, mask=mask, sample_posterior=True)
                 recon = x + torch.randn_like(x) * 0.02
@@ -263,7 +262,7 @@ if __name__ == "__main__":
     parser.add_argument('--checkpoint', type=str, required=True)
     parser.add_argument('--output_dir', type=str, default='eval_results')
     parser.add_argument('--num_save', type=int, default=20)
-    parser.add_argument('--batch_size', type=int, default=256)
+    parser.add_argument('--batch_size', type=int, default=16)
     args = parser.parse_args()
     
     evaluate(args)

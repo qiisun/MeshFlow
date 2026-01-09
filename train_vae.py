@@ -240,31 +240,10 @@ def do_train(train_config, accelerator):
             
             # Calculate gradient norm
             grad_norm = 0.0
-            if 'max_grad_norm' in train_config['optimizer']:
-                if accelerator.sync_gradients:
-                    grad_norm = accelerator.clip_grad_norm_(model.parameters(), train_config['optimizer']['max_grad_norm'])
-                else:
-                    # Calculate manually if not syncing
-                    total_norm = 0.0
-                    for p in model.parameters():
-                        if p.grad is not None:
-                            param_norm = p.grad.data.norm(2)
-                            total_norm += param_norm.item() ** 2
-                    grad_norm = total_norm ** (1. / 2)
-            else:
-                # Calculate gradient norm even if not clipping
-                if accelerator.sync_gradients:
-                    # Use a large value to get the norm without clipping
-                    grad_norm = accelerator.clip_grad_norm_(model.parameters(), float('inf'))
-                else:
-                    # Calculate manually
-                    total_norm = 0.0
-                    for p in model.parameters():
-                        if p.grad is not None:
-                            param_norm = p.grad.data.norm(2)
-                            total_norm += param_norm.item() ** 2
-                    grad_norm = total_norm ** (1. / 2)
-            
+            if accelerator.sync_gradients:
+                grad_norm_tensor = accelerator.clip_grad_norm_(model.parameters(), 1)                
+                if grad_norm_tensor is not None:
+                    grad_norm = grad_norm_tensor.item()            
             opt.step()
             scheduler.step()
             update_ema(ema, model.module)

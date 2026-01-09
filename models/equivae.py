@@ -10,7 +10,6 @@ import numpy as np
 from models.utils import get_2d_sincos_pos_embed
 from models.equidit import LabelEmbedder, XEmbedder, VertexCrossAttention, DiTLayer, FinalLayer
 
-
 def float_to_index(value, min_val=-0.5, max_val=0.5, num_bins=512):
     norm = (value - min_val) / (max_val - min_val)
     norm = torch.clamp(norm, 0, 1)
@@ -60,13 +59,15 @@ class AutoencoderKL(nn.Module):
             self.encoder = None 
             self.quant_linear = None 
             self.input_proj = nn.Identity()
+            from models.pe import NeRFEncoding
+            self.pe_nerf = NeRFEncoding(num_freqs=12)
         else:
             self.encoder = Model(hidden_dim=hidden_dim, model_type='encoder', num_bins=num_bins, use_rmsnorm=use_rmsnorm, face_bin=face_bin,
                                  num_layers=num_layers,
                              num_heads=num_heads) # encoder 
             self.quant_linear = nn.Linear(hidden_dim, 2 * latent_channels) # 9 -> 4*2
         
-        self.post_quant_linear = nn.Linear(latent_channels, hidden_dim)
+        self.post_quant_linear = nn.Linear(latent_channels if not self.use_identity_encoder else self.pe_nerf.output_dim, hidden_dim)
         self.decoder = Model(hidden_dim=hidden_dim, model_type='decoder', decoder_type=decoder_type, num_bins=num_bins, use_rmsnorm=use_rmsnorm, face_bin=face_bin,
                              use_identity_encoder=use_identity_encoder,
                              num_layers=num_layers,
@@ -116,11 +117,14 @@ class AutoencoderKL(nn.Module):
             z = posterior.sample() # [b, N, c] 
         else:
             z = posterior.mode() # z[mask.unsqueeze(2).repeat(1,1,3).reshape(bs, -1)]
-        reconstruction = self.decode(z, cond, mask)
         
         if self.use_identity_encoder:
+            z_pe = self.pe_nerf(z)
+            reconstruction = self.decode(z_pe, cond, mask)
             z = z.reshape(reconstruction.shape[0], reconstruction.shape[1], -1) # [B, N*3, 3]
             reconstruction += z
+        else:
+            reconstruction = self.decode(z, cond, mask)
         return reconstruction, posterior, z
 
 class DiagonalGaussianDistribution(object):
@@ -328,19 +332,37 @@ def compute_face_normals(vertices):
     return normals
 
 # @torch.jit.script
-def weighting_from_triangle_soup(inputs: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-    x1 = inputs[..., 3] - inputs[..., 0]
-    y1 = inputs[..., 4] - inputs[..., 1]
-    z1 = inputs[..., 5] - inputs[..., 2]
-    
-    x2 = inputs[..., 6] - inputs[..., 0]
-    y2 = inputs[..., 7] - inputs[..., 1]
-    z2 = inputs[..., 8] - inputs[..., 2]
-    cx = y1 * z2 - z1 * y2
-    cy = z1 * x2 - x1 * z2
-    cz = x1 * y2 - y1 * x2
-    area = 0.5 * torch.sqrt(cx*cx + cy*cy + cz*cz + 1e-8)
-    weight = 1 / (1e-7+torch.sqrt(area))
+def weighting_from_triangle_soup(inputs: torch.Tensor, mask: torch.Tensor, weight_type='min_edge') -> torch.Tensor:
+    if weight_type == 'min_edge':
+        p0 = inputs[..., 0:3]
+        p1 = inputs[..., 3:6]
+        p2 = inputs[..., 6:9]
+
+        v01 = p1 - p0
+        v12 = p2 - p1
+        v20 = p0 - p2
+
+        l01 = torch.norm(v01, dim=-1)
+        l12 = torch.norm(v12, dim=-1)
+        l20 = torch.norm(v20, dim=-1)
+
+        stacked_lengths = torch.stack([l01, l12, l20], dim=-1)
+        min_edge, _ = torch.min(stacked_lengths, dim=-1)
+        weight = 1.0 / (1e-4 + min_edge)
+
+    elif weight_type == 'area':
+        x1 = inputs[..., 3] - inputs[..., 0]
+        y1 = inputs[..., 4] - inputs[..., 1]
+        z1 = inputs[..., 5] - inputs[..., 2]
+        
+        x2 = inputs[..., 6] - inputs[..., 0]
+        y2 = inputs[..., 7] - inputs[..., 1]
+        z2 = inputs[..., 8] - inputs[..., 2]
+        cx = y1 * z2 - z1 * y2
+        cy = z1 * x2 - x1 * z2
+        cz = x1 * y2 - y1 * x2
+        area = 0.5 * torch.sqrt(cx*cx + cy*cy + cz*cz + 1e-8)
+        weight = 1 / (1e-4+torch.sqrt(area))
     return weight * mask
 
 def loss_vae(inputs, recon, posterior, mask=None, kl_weight=0, decoder_type="reg", num_bins=512,
@@ -358,13 +380,13 @@ def loss_vae(inputs, recon, posterior, mask=None, kl_weight=0, decoder_type="reg
     mae_metric = _masked_mean(rec_diff_abs, mask)
     mse_metric = _masked_mean(mse_elementwise, mask)
     rmse_metric = torch.sqrt(mse_metric)
-    weighted_abs_diff = rec_diff_abs * weighting[..., None]
+    weighted_abs_diff = rec_diff_abs * weighting[..., None] # [bs, N, 9] * [bs, N]
     w_mae_metric = _masked_mean(weighted_abs_diff, mask)
     if loss_type == 'mae':
         pixel_loss = rec_diff_abs
         
     elif loss_type == "mse":
-        pixel_loss = mse_elementwise / (fixed_std)
+        pixel_loss = mse_elementwise / (fixed_std) # 2e-2 **2 = 4e-4
         
     elif loss_type == "weighted_mse":
         pixel_loss = mse_elementwise * weighting[..., None]

@@ -3,7 +3,7 @@ ckpt_path: 'path/to/your/checkpoint.pt' # <---- download our pre-trained lightni
 
 data:
   valid_path: 'debug/valid'
-  data_path: 'downloaded_data/objaverse' # 'downloaded_data/objaverse'
+  data_path: 'downloaded_data/shapenet-02828884' # 'downloaded_data/objaverse'
 
   # recommend to use default settings
   num_workers: 8
@@ -51,7 +51,7 @@ train:
   global_batch_size: 128 #768
   global_seed: 0
   output_dir: 'output'
-  exp_name: 'vae_rms_fixed_002_mse_scale_120m_all' # <---- experiment name, set as you like
+  exp_name: 'vae_rms_fixed_002_mse_scale_120m_02828884' # <---- experiment name, set as you like
   ckpt: null
   log_every: 100
   ckpt_every: 3000 # 100 for debug
@@ -60,6 +60,6 @@ train:
   loss_type: "mse"
 
 optimizer:
-  lr: 0.0002 # 1e-4
+  lr: 0.0001 # 1e-4
   beta2: 0.95
   max_grad_norm: 2.0

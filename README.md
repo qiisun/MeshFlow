@@ -162,8 +162,8 @@ python post_mesh.py \
   --output_dir output/post/check_test_500m
 
 python post_mesh.py \
-  --config configs/vae_fixed_500m.yaml \
-  --checkpoint ./output/vae_rms_fixed_002_mse_scale_500m/checkpoints/0021000.pt \
-  --input_folder output/post/gen_50steps_cfg1 \
-  --output_dir output/post/preprocess_
+  --config configs/vae_fixed_500m_bench.yaml \
+  --checkpoint ./output/vae_rms_fixed_002_mse_scale_500m_02828884/checkpoints/0021000.pt \
+  --input_folder output/post/49_steps_bench \
+  --output_dir output/post/preprocess_49_steps_bench
 ```

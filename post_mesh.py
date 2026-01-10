@@ -77,10 +77,15 @@ def run_inference(args):
         num_faces = data['num_faces'].to(device)
         with torch.no_grad():
             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-                recon = model.decode(x.reshape(1, -1, 3), cond=num_faces, mask=mask) + x
+                # recon = model.decode(x.reshape(1, -1, 3), cond=num_faces, mask=mask) + x
+                z_pe = model.pe_nerf(x.reshape(x.shape[0], -1, 3))
+                # import ipdb; ipdb.set_trace()
+                reconstruction = model.decode(z_pe, num_faces, mask)
+                x = x.reshape(reconstruction.shape[0], reconstruction.shape[1], -1) # [B, N*3, 3]
+                reconstruction += x
                 # recon, _, _ = model(x, cond=num_faces, mask=mask)
         
-        recon_coords = recon # continuous output
+        recon_coords = reconstruction # continuous output
         valid_recon = recon_coords[mask].reshape(-1, 3, 3).float().cpu().numpy()            
         # Save
         save_name = f"recon_{data['filename']}"

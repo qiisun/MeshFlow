@@ -48,7 +48,7 @@ model:
 # recommend to use default settings
 train:
   max_steps: 100000
-  global_batch_size: 32 #768
+  global_batch_size: 64 #768
   global_seed: 0
   output_dir: 'output'
   exp_name: 'vae_rms_fixed_002_mse_scale_500m_02828884' # <---- experiment name, set as you like

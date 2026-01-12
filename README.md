@@ -167,3 +167,36 @@ python post_mesh.py \
   --input_folder output/post/49_steps_bench \
   --output_dir output/post/preprocess_49_steps_bench
 ```
+
+
+
+### MeshFlow + Denoiser
+
+1. download meshflow data
+```bash 
+mkdir -p downloaded_data/meshflow_data
+cd downloaded_data/meshflow_data
+wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/meshflow/49_steps_chair.zip
+wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/meshflow/49_steps_table.zip
+unzip 49_steps_chair.zip
+unzip 49_steps_table.zip
+cd ../..
+```
+
+2. download checkpoint
+```bash 
+mkdir -p downloaded_data/denoiser_ckpt/chair_500m
+cd downloaded_data/denoiser_ckpt/chair_500m
+wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/denoiser/002_500M_chair/0030000.pt
+cd ../../..
+```
+
+3. run denoiser
+
+```bash
+python post_mesh.py \
+  --config configs/vae_fixed_500m_chair.yaml \ #
+  --checkpoint ./downloaded_data/denoiser_ckpt/chair_500m/0030000.pt \
+  --input_folder downloaded_data/meshflow_data/49_steps_chair \
+  --output_dir output/post_process/chair
+```

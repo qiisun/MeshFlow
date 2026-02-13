@@ -80,7 +80,7 @@ bash tools/run_train.sh configs/base.yaml
 ### Train Latent MeshFlow
 ```bash
 # change the 
-bash tools/run_train_latent.sh configs/latent.yaml
+bash tools/run_train_latent.sh  configs/latent.yaml
 
 CUDA_VISIBLE_DEVICES=6, \
 accelerate launch eval_ldm.py \

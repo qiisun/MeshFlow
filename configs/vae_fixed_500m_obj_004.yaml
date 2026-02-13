@@ -47,8 +47,8 @@ model:
 
 # recommend to use default settings
 train:
-  max_steps: 100000
-  global_batch_size: 168 #768
+  max_steps: 400000
+  global_batch_size: 192 #768
   global_seed: 0
   output_dir: 'output'
   exp_name: 'vae_rms_fixed_004_mse_scale_500m_objaverse' # <---- experiment name, set as you like
@@ -56,7 +56,7 @@ train:
   log_every: 100
   ckpt_every: 3000 # 100 for debug
   kl_weight: 0.000
-  resume: false
+  resume: true
   loss_type: "mse"
 
 optimizer:

@@ -48,7 +48,7 @@ def upload_to_hf(local_path, repo_id, path_in_repo, token=None, commit_message=N
         print(f"❌ Failed to upload: {e}")
 
 if __name__ == "__main__":
-    # python tools/upload.py output/vae_rms_fixed_002_mse_scale_500m_03001627/checkpoints/0030000.pt --dir denoiser/002_500M_chair
+    # python tools/upload.py output/vae_rms_fixed_002_mse_scale_500m_objaverse/checkpoints/0126000.pt --dir denoiser/002_500M_objaverse
     parser = argparse.ArgumentParser(description="Upload VAE checkpoints to Hugging Face Dataset")
     
     parser.add_argument("path", type=str, help="Local path to the file (.pt) or folder containing checkpoints")

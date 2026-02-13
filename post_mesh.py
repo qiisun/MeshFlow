@@ -41,7 +41,8 @@ def run_inference(args):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     config = load_config(args.config)
     
-    os.makedirs(args.output_dir, exist_ok=True)
+    output_dir = args.input_folder + "_processed"
+    os.makedirs(output_dir, exist_ok=True)
 
     print(f"Initializing Model...")
     model = AutoencoderKL(latent_channels=config['model']['latent_channels'],
@@ -77,27 +78,26 @@ def run_inference(args):
         num_faces = data['num_faces'].to(device)
         with torch.no_grad():
             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-                # z_pe = model.pe_nerf(x.reshape(x.shape[0], -1, 3))
-                # reconstruction = model.decode(z_pe, num_faces, mask)
-                # x = x.reshape(reconstruction.shape[0], reconstruction.shape[1], -1) # [B, N*3, 3]
-                # reconstruction += x
-                reconstruction, _, _ = model(x, cond=num_faces, mask=mask)
+                z_pe = model.pe_nerf(x.reshape(x.shape[0], -1, 3))
+                reconstruction = model.decode(z_pe, num_faces, mask)
+                x = x.reshape(reconstruction.shape[0], reconstruction.shape[1], -1) # [B, N*3, 3]
+                reconstruction += x
+                # reconstruction, _, _ = model(x, cond=num_faces, mask=mask)
         
         recon_coords = reconstruction # continuous output
         valid_recon = recon_coords[mask].reshape(-1, 3, 3).float().cpu().numpy()            
         # Save
         save_name = f"recon_{data['filename']}"
-        save_path = os.path.join(args.output_dir, save_name)
+        save_path = os.path.join(output_dir, save_name)
         save_mesh(valid_recon, save_path)
             
-    print(f"Done! Results saved to {args.output_dir}")
+    print(f"Done! Results saved to {output_dir}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, required=True, help="Path to config yaml")
     parser.add_argument('--checkpoint', type=str, required=True, help="Path to model .pt")
     parser.add_argument('--input_folder', type=str, required=True, help="Folder containing .obj files")
-    parser.add_argument('--output_dir', type=str, default='recon_results', help="Where to save outputs")
     
     args = parser.parse_args()
     

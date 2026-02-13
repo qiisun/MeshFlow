@@ -133,27 +133,6 @@ bash tools/run_train_421a.sh configs/base.yaml
 
 ### post-processing
 ```bash
-python post_mesh.py \
-  --config configs/vae_fixed_120m.yaml \
-  --checkpoint ./output/vae_rms_fixed_002_mse_scale_120m/checkpoints/0009000.pt \
-  --input_folder output/post/49steps_cfg1 \
-  --output_dir output/post/processed_49_cfg1
-
-python post_mesh.py \
-  --config configs/vae_fixed_120m.yaml \
-  --checkpoint ./output/vae_rms_fixed_002_mse_scale_120m/checkpoints/0009000.pt \
-  --input_folder output/post/002_noise_train \
-  --output_dir output/post/check_train_norela
-python post_mesh.py \
-  --config configs/vae_fixed_120m.yaml \
-  --checkpoint ./output/vae_rms_fixed_002_wmse/checkpoints/0009000.pt \
-  --input_folder output/post/002_noise_train \
-  --output_dir output/post/check_train_rela
-python post_mesh.py \
-  --config configs/vae_fixed_120m.yaml \
-  --checkpoint ./output/vae_rms_fixed_002_mse_scale_120m/checkpoints/0009000.pt \
-  --input_folder output/post/002_noise_valid \
-  --output_dir output/post/check_test_norela
 
 python post_mesh.py \
   --config configs/vae_fixed_500m.yaml \
@@ -220,15 +199,15 @@ cat=chair
 python post_mesh.py \
   --config configs/vae_fixed_500m_${cat}.yaml \
   --checkpoint ./downloaded_data/denoiser_ckpt/chair_500m/0030000.pt \
-  --input_folder ./downloaded_data/pretrained/chair/iter469000/eval_nsteps1000_nsmp1000infer_cfg0.0 \
-  --output_dir output/post_process/chair_sota
+  --input_folder ./downloaded_data/pretrained/chair/iter490000/eval_nsteps50_nsmp1000infer_cfg1.0 \
+  --output_dir output/post_process/chair_sota_1-2
 
 cat=table
 python post_mesh.py \
   --config configs/vae_fixed_500m_${cat}.yaml \
   --checkpoint ./downloaded_data/denoiser_ckpt/${cat}_500m/0063000.pt \
-  --input_folder ./downloaded_data/pretrained/table/iter437000/49_steps_table \
-  --output_dir output/post_process/table_1
+  --input_folder ./downloaded_data/pretrained/table/iter490000/eval_nsteps200_nsmp1000infer_cfg6.0 \
+  # --output_dir output/post_process/table_2-1
 
 cat=lamp
 python post_mesh.py \

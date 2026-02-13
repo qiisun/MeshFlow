@@ -189,6 +189,22 @@ mkdir -p downloaded_data/denoiser_ckpt/chair_500m
 cd downloaded_data/denoiser_ckpt/chair_500m
 wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/denoiser/002_500M_chair/0030000.pt
 cd ../../..
+
+mkdir -p downloaded_data/denoiser_ckpt/bench_500m
+cd downloaded_data/denoiser_ckpt/bench_500m
+wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/denoiser/002_500M_bench/0021000.pt
+cd ../../..
+
+mkdir -p downloaded_data/denoiser_ckpt/lamp_500m
+cd downloaded_data/denoiser_ckpt/lamp_500m
+wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/denoiser/002_500M_lamp/0009000.pt
+cd ../../..
+
+mkdir -p downloaded_data/denoiser_ckpt/table_500m
+cd downloaded_data/denoiser_ckpt/table_500m
+wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/denoiser/002_500M_table/0063000.pt
+cd ../../..
+
 ```
 
 3. run denoiser
@@ -199,4 +215,34 @@ python post_mesh.py \
   --checkpoint ./downloaded_data/denoiser_ckpt/chair_500m/0030000.pt \
   --input_folder downloaded_data/meshflow_data/49_steps_chair \
   --output_dir output/post_process/chair
+
+cat=chair
+python post_mesh.py \
+  --config configs/vae_fixed_500m_${cat}.yaml \
+  --checkpoint ./downloaded_data/denoiser_ckpt/chair_500m/0030000.pt \
+  --input_folder ./downloaded_data/pretrained/chair/iter469000/eval_nsteps1000_nsmp1000infer_cfg0.0 \
+  --output_dir output/post_process/chair_sota
+
+cat=table
+python post_mesh.py \
+  --config configs/vae_fixed_500m_${cat}.yaml \
+  --checkpoint ./downloaded_data/denoiser_ckpt/${cat}_500m/0063000.pt \
+  --input_folder ./downloaded_data/pretrained/table/iter437000/49_steps_table \
+  --output_dir output/post_process/table_1
+
+cat=lamp
+python post_mesh.py \
+  --config configs/vae_fixed_500m_${cat}.yaml \
+  --checkpoint ./downloaded_data/denoiser_ckpt/${cat}_500m/0009000.pt \
+  --input_folder ./downloaded_data/pretrained/lamp/iter346000/49steps_cfg1 \
+  --output_dir output/post_process/lamp_1
+
+
+cat=bench
+python post_mesh.py \
+  --config configs/vae_fixed_500m_${cat}.yaml \
+  --checkpoint ./downloaded_data/denoiser_ckpt/${cat}_500m/0021000.pt \
+  --input_folder ./downloaded_data/pretrained/bench/iter446000/eval_nsteps250_nsmp1000infer_cfg1.0 \
+  --output_dir output/post_process/bench_sota_1
+
 ```

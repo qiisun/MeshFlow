@@ -29,7 +29,7 @@ from accelerate import Accelerator
 
 from models.equidit import DiT
 from transport import create_transport
-from inference import do_sample_simple
+from inference_dit import do_sample_simple
 from datasets.mesh_dataset import ObjaverseDataset, collate_fn
 
 

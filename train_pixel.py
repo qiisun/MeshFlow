@@ -28,6 +28,7 @@ import torch.nn.functional as F
 from accelerate import Accelerator
 
 from models.equidit import DiT
+from models.dit import DiT_Llama
 from transport import create_transport
 from inference_dit import do_sample_simple
 from datasets.mesh_dataset import ObjaverseDataset, collate_fn
@@ -70,20 +71,42 @@ def do_train(train_config, accelerator):
     rank = accelerator.local_process_index
 
     # Create model:
-    model = DiT(hidden_dim=train_config['model']['hidden_dim'], # 768
-                num_heads=train_config['model']['num_heads'],
-                max_length=train_config['model']['max_length'],
-                num_layers=train_config['model']['num_layers'],
-                gradient_checkpointing = train_config['model']['gradient_checkpointing'],
-                use_coord_encoding=train_config['model']['use_coord_encoding'],
-                version = train_config['model']['version'],
-                pe_freq=train_config['model']['pe_freq'],
-                mixed_precision=train_config['model']['mixed_precision'],
-                use_dit_like_pe=train_config['model']['use_dit_like_pe'],
-                face_cond=train_config['model']['face_cond'],
-                face_bin=train_config['model']['face_bin'],
-                use_rmsnorm=train_config['model']['use_rmsnorm'] if 'use_rmsnorm' in train_config['model'] else False,
-            )
+    model_arch = train_config['model'].get('model_type', 'equidit')  # 'equidit' or 'dit_llama'
+    
+    if model_arch == 'dit_llama':
+        model = DiT_Llama(
+            in_channels=train_config['model'].get('in_channels', 9),
+            input_size=train_config['model'].get('input_size', 32),
+            patch_size=train_config['model'].get('patch_size', 1),
+            dim=train_config['model'].get('hidden_dim', 1024),
+            n_layers=train_config['model'].get('num_layers', 24),
+            n_heads=train_config['model'].get('num_heads', 16),
+            multiple_of=train_config['model'].get('multiple_of', 256),
+            ffn_dim_multiplier=train_config['model'].get('ffn_dim_multiplier', None),
+            norm_eps=train_config['model'].get('norm_eps', 1e-5),
+            class_dropout_prob=train_config['model'].get('class_dropout_prob', 0.1),
+            num_classes=train_config['model'].get('num_classes', 1000),
+        )
+    else:  # default: equidit
+        model = DiT(
+            hidden_dim=train_config['model']['hidden_dim'],  # 768
+            num_heads=train_config['model']['num_heads'],
+            max_length=train_config['model']['max_length'],
+            num_layers=train_config['model']['num_layers'],
+            gradient_checkpointing=train_config['model']['gradient_checkpointing'],
+            use_coord_encoding=train_config['model']['use_coord_encoding'],
+            version=train_config['model']['version'],
+            pe_freq=train_config['model']['pe_freq'],
+            mixed_precision=train_config['model']['mixed_precision'],
+            use_dit_like_pe=train_config['model']['use_dit_like_pe'],
+            face_cond=train_config['model']['face_cond'],
+            face_bin=train_config['model']['face_bin'],
+            use_rmsnorm=train_config['model'].get('use_rmsnorm', False),
+        )
+    
+    if accelerator.is_main_process:
+        logger.info(f"Using model architecture: {model_arch}")
+    
     ema = deepcopy(model).to(device)  # Create an EMA of the model for use after training
 
     # load pretrained model

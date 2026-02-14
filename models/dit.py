@@ -274,6 +274,9 @@ class DiT_Llama(nn.Module):
         self.final_layer = FinalLayer(dim, patch_size, self.out_channels)
 
         self.freqs_cis = DiT_Llama.precompute_freqs_cis(dim // n_heads, 4096)
+        
+        # For classifier-free guidance, uncond_y is the class index used for unconditional generation
+        self.uncond_y = num_classes  # This matches the LabelEmbedder's unconditional class index
 
     def unpatchify(self, x):
         return x
@@ -320,14 +323,14 @@ class DiT_Llama(nn.Module):
         
         combined_mask = None
         if mask is not None:
-            mask_half = mask[: len(mask) // 2]
-            combined_mask = torch.cat([mask_half, mask_half], dim=0)
-            
+            # mask_half = mask[: len(mask)]
+            combined_mask = torch.cat([mask, mask], dim=0)
         model_out = self.forward(combined, t, y, mask=combined_mask)
         eps, rest = model_out[:, : self.in_channels], model_out[:, self.in_channels :]
         cond_eps, uncond_eps = torch.split(eps, len(eps) // 2, dim=0)
         half_eps = uncond_eps + cfg_scale * (cond_eps - uncond_eps)
         eps = torch.cat([half_eps, half_eps], dim=0)
+        
         return torch.cat([eps, rest], dim=1)
 
     @staticmethod

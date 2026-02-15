@@ -5,13 +5,17 @@ support dataset
 - [ ] objaverse
 
 support model
-- [x] MeshFlow: EquiDiT(no PE) + unordered meshes
-- [x] DiT+Rope  + ordered meshes
+- [x] MeshFlow: EquiDiT(no PE) / unordered meshes
+- [x] DiT+Rope  / ordered meshes
 
 
 support generative modeling
 - [x] V-prediction + V-loss
 - [ ] x-prediction + V-loss
+
+support coupling
+- [x] OT coupling
+- [x] independent coupling
 
 Default Model Size = 500M (24 layers+16 heads+1024 hidden dims)
 ----

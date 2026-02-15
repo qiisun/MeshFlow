@@ -22,7 +22,7 @@ data:
   latent_multiplier: 1.0
 
   do_dataset_normalize: True
-  noise_sort: 'ot'
+  noise_sort: 'random'
   use_rot_aug: False  # <---- whether to use rotation augmentation when training
   use_scale_aug: False  # <---- whether to use scaling augmentation when training
   use_permute_aug: False  # <---- whether to use permutation augmentation when training
@@ -63,7 +63,7 @@ train:
   global_batch_size: 1 # 28
   global_seed: 0
   output_dir: 'output'
-  exp_name: 'base-2.15-03' # <---- experiment name, set as you like
+  exp_name: 'base-2.15-04' # <---- experiment name, set as you like
   ckpt: null
   log_every: 100
   ckpt_every: 3000 # 100 for debug

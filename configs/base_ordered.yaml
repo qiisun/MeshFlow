@@ -26,6 +26,7 @@ data:
   noise_sort: 'ot'
   use_rot_aug: False  # <---- whether to use rotation augmentation when training
   use_scale_aug: False  # <---- whether to use scaling augmentation when training
+  use_permute_aug: False  # <---- whether to use permutation augmentation when training
 
 
 # recommend to use default settings (we wil release codes with SD-VAE later)

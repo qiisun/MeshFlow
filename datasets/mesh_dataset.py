@@ -252,6 +252,7 @@ class ObjaverseDataset(Dataset):
     
     def tokenize_mesh(self, vertices, faces, shuffle_face=True, shuffle_vertex=True, discrete_bins=None):
         triangle_soup = vertices[faces]  # [N, 3, 3]
+        triangle_soup = sort_triangle_soup(triangle_soup) # [N, 3, 3]
         N = triangle_soup.shape[0]
         if shuffle_face:
             perm_idx = np.random.permutation(N)

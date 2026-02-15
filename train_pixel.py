@@ -86,6 +86,9 @@ def do_train(train_config, accelerator):
             norm_eps=train_config['model'].get('norm_eps', 1e-5),
             class_dropout_prob=train_config['model'].get('class_dropout_prob', 0.1),
             num_classes=train_config['model'].get('num_classes', 1000),
+            face_cond=train_config['model'].get('face_cond', False),
+            face_bin=train_config['model'].get('face_bin', 10),
+            max_length=train_config['model'].get('max_length', 800),
         )
     else:  # default: equidit
         model = DiT(
@@ -147,9 +150,9 @@ def do_train(train_config, accelerator):
         use_decimated_dataset=train_config['data']['use_decimated_dataset'] if 'use_decimated_dataset' in train_config['data'] else False,
         do_dataset_normalize=train_config['data']['do_dataset_normalize'] if 'do_dataset_normalize' in train_config['data'] else False,
         vae=False,
-        use_rot_aug=train_config['data']['use_rot_aug'] if 'use_rot_aug' in train_config['data'] else True,
-        use_scale_aug=train_config['data']['use_scale_aug'] if 'use_scale_aug' in train_config['data'] else True,
-        use_permut_aug=train_config['data']['use_permut_aug'] if 'use_permut_aug' in train_config['data'] else True,
+        use_rot_aug=train_config['data']['use_rot_aug'],
+        use_scale_aug=train_config['data']['use_scale_aug'],
+        use_permut_aug=train_config['data']['use_permute_aug'],
     )
     batch_size_per_gpu = int(np.round(train_config['train']['global_batch_size'] / accelerator.num_processes))
     global_batch_size = batch_size_per_gpu * accelerator.num_processes
@@ -236,11 +239,11 @@ def do_train(train_config, accelerator):
             if accelerator.mixed_precision == 'no':
                 x1 = x1.to(device, dtype=torch.float32)
                 x0 = x0.to(device, dtype=torch.float32)
-                y = y
             else:
                 x1 = x1.to(device)
                 x0 = x0.to(device)
-                y = y.to(device)
+            y = y.to(device)
+            mask = mask.to(device)
             model_kwargs = dict(y=y, mask=mask)
                 
             loss_dict = transport.training_losses(model, x1, x0, model_kwargs)

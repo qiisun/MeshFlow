@@ -242,7 +242,10 @@ class DiT_Llama(nn.Module):
         ffn_dim_multiplier=None,
         norm_eps=1e-5,
         class_dropout_prob=0.1,
-        num_classes=1000,
+        num_classes=1000, # unused, only for non-face_cond mode
+        face_cond=False,
+        face_bin=200,
+        max_length=800,
     ):
         super().__init__()
 
@@ -250,13 +253,23 @@ class DiT_Llama(nn.Module):
         self.out_channels = in_channels
         self.input_size = input_size
         self.patch_size = patch_size
+        self.face_cond = face_cond
+        self.face_bin = face_bin
         self.init_conv_seq = nn.Linear(in_channels * patch_size * patch_size, dim // 2, bias=True)
 
         self.x_embedder = nn.Linear(patch_size * patch_size * dim // 2, dim, bias=True)
         nn.init.constant_(self.x_embedder.bias, 0)
 
         self.t_embedder = TimestepEmbedder(min(dim, 1024))
-        self.y_embedder = LabelEmbedder(num_classes, min(dim, 1024), class_dropout_prob)
+        
+        # For face_cond mode, use face count bins as classes
+        if face_cond:
+            self.num_classes = max_length // face_bin
+            self.y_embedder = LabelEmbedder(self.num_classes, min(dim, 1024), class_dropout_prob)
+            self.uncond_y = self.num_classes  # unconditional class index
+            print(f"Initialized DiT_Llama with face conditioning: {self.num_classes} bins, uncond_y={self.uncond_y}")
+        else:
+            self.y_embedder = LabelEmbedder(num_classes, min(dim, 1024), class_dropout_prob)
 
         self.layers = nn.ModuleList(
             [
@@ -276,7 +289,8 @@ class DiT_Llama(nn.Module):
         self.freqs_cis = DiT_Llama.precompute_freqs_cis(dim // n_heads, 4096)
         
         # For classifier-free guidance, uncond_y is the class index used for unconditional generation
-        self.uncond_y = num_classes  # This matches the LabelEmbedder's unconditional class index
+        if not face_cond:
+            self.uncond_y = num_classes  # This matches the LabelEmbedder's unconditional class index
 
     def unpatchify(self, x):
         return x
@@ -292,8 +306,17 @@ class DiT_Llama(nn.Module):
         x = self.x_embedder(x)
 
         t = self.t_embedder(t)  # (N, D)
-        y = self.y_embedder(y, self.training)  # (N, D)
-        adaln_input = t.to(x.dtype) + y.to(x.dtype)
+        
+        # Handle y based on face_cond mode
+        if self.face_cond:
+            # y is num_faces, convert to bin index
+            y_bin = (y // self.face_bin).clamp(max=self.num_classes - 1)
+            y_emb = self.y_embedder(y_bin, self.training)  # (N, D)
+            adaln_input = t.to(x.dtype) + y_emb.to(x.dtype)
+        else:
+            # y is class label
+            y_emb = self.y_embedder(y, self.training)  # (N, D)
+            adaln_input = t.to(x.dtype) + y_emb.to(x.dtype)
         
         attn_mask = None
         if mask is not None:

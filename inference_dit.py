@@ -55,7 +55,7 @@ def do_sample_simple(model, valid_loader, device, transport, train_config, accel
         z = torch.cat([z, z], 0)
         model_unwarp = accelerator.unwrap_model(model)
         y_null = torch.tensor([model_unwarp.uncond_y] * 1, device=device) #TODO: pay attention; we are not 1000 classes
-        y = torch.cat([y, y_null], 0)
+        y = torch.cat([y// model_unwarp.face_bin, y_null], 0)
         model_kwargs = dict(y=y, cfg_scale=cfg_scale, mask=mask)
         model_fn = model_unwarp.forward_with_cfg
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):

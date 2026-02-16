@@ -66,7 +66,7 @@ train:
   exp_name: 'base-2.15-05-sketchfab' # <---- experiment name, set as you like
   ckpt: null
   log_every: 100
-  ckpt_every: 3000 # 100 for debug
+  ckpt_every: 10000 # 3000 # 100 for debug
 
   use_repa: False
   repa_idx: 3

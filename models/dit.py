@@ -309,13 +309,16 @@ class DiT_Llama(nn.Module):
         
         # Handle y based on face_cond mode
         if self.face_cond:
-            # y is num_faces, convert to bin index
+            # y is num_faces for conditional samples; uncond samples use self.uncond_y directly
+            y = y.long()
+            is_uncond = y == self.uncond_y
             y_bin = (y // self.face_bin).clamp(max=self.num_classes - 1)
-            y_emb = self.y_embedder(y_bin, self.training)  # (N, D)
+            y_idx = torch.where(is_uncond, torch.full_like(y_bin, self.uncond_y), y_bin)
+            y_emb = self.y_embedder(y_idx, self.training)  # (N, D)
             adaln_input = t.to(x.dtype) + y_emb.to(x.dtype)
         else:
             # y is class label
-            y_emb = self.y_embedder(y, self.training)  # (N, D)
+            y_emb = self.y_embedder(y.long(), self.training)  # (N, D)
             adaln_input = t.to(x.dtype) + y_emb.to(x.dtype)
         
         attn_mask = None
@@ -341,14 +344,28 @@ class DiT_Llama(nn.Module):
 
         
     def forward_with_cfg(self, x, t, y, cfg_scale, mask=None):
-        half = x[: len(x) // 2]
+        half_n = len(x) // 2
+        half = x[:half_n]
         combined = torch.cat([half, half], dim=0)
+
+        if t.shape[0] == combined.shape[0]:
+            combined_t = t
+        else:
+            half_t = t[:half_n]
+            combined_t = torch.cat([half_t, half_t], dim=0)
+
+        cond_y = y[:half_n] if y.shape[0] >= half_n else y
+        uncond_y = torch.full_like(cond_y, self.uncond_y)
+        combined_y = torch.cat([cond_y, uncond_y], dim=0)
         
         combined_mask = None
         if mask is not None:
-            # mask_half = mask[: len(mask)]
-            combined_mask = torch.cat([mask, mask], dim=0)
-        model_out = self.forward(combined, t, y, mask=combined_mask)
+            if mask.shape[0] == combined.shape[0]:
+                combined_mask = mask
+            else:
+                mask_half = mask[:half_n]
+                combined_mask = torch.cat([mask_half, mask_half], dim=0)
+        model_out = self.forward(combined, combined_t, combined_y, mask=combined_mask)
         eps, rest = model_out[:, : self.in_channels], model_out[:, self.in_channels :]
         cond_eps, uncond_eps = torch.split(eps, len(eps) // 2, dim=0)
         half_eps = uncond_eps + cfg_scale * (cond_eps - uncond_eps)

@@ -148,7 +148,7 @@ def do_train(train_config, accelerator):
         noise_sort=train_config['data']['noise_sort'],
         use_custom_prior=False,
         use_decimated_dataset=False,
-        do_dataset_normalize=False,
+        do_dataset_normalize=True,
         vae=False,
         use_rot_aug=train_config['data']['use_rot_aug'],
         use_scale_aug=train_config['data']['use_scale_aug'],
@@ -176,7 +176,7 @@ def do_train(train_config, accelerator):
         training=False,
         use_custom_prior=False,
         use_decimated_dataset=False,
-        do_dataset_normalize=train_config['data']['do_dataset_normalize'],
+        do_dataset_normalize=True,
         vae=False,
         use_rot_aug=False,
         use_scale_aug=False,
@@ -185,7 +185,7 @@ def do_train(train_config, accelerator):
 
         valid_loader = DataLoader(
             valid_dataset,
-            batch_size=1,
+            batch_size=batch_size_per_gpu,
             shuffle=False,
             num_workers=train_config['data']['num_workers'],
             pin_memory=True,
@@ -260,7 +260,7 @@ def do_train(train_config, accelerator):
                 if accelerator.sync_gradients:
                     accelerator.clip_grad_norm_(model.parameters(), train_config['optimizer']['max_grad_norm'])
             opt.step()
-            update_ema(ema, model.module)
+            update_ema(ema, model.module, decay=0.999) # 0.999 ema
 
             # Log loss values:
             if 'cos_loss' in loss_dict:

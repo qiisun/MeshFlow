@@ -22,6 +22,8 @@ def do_sample_simple(model, valid_loader, device, transport, train_config, accel
     mode = "ODE" # train_config['sample']['mode']
     timestep_shift = 0
     cfg_scale = 9.0
+    was_training = model.training
+    model.eval()
     
     save_dir_mesh = f'{save_dir}/mesh_{train_steps}step'
     os.makedirs(save_dir_mesh, exist_ok=True)
@@ -37,8 +39,12 @@ def do_sample_simple(model, valid_loader, device, transport, train_config, accel
         )
     
     images = []
+    running_val_loss = 0.0
+    val_steps = 0
     for i, data in tqdm(enumerate(valid_loader), desc="Generating Demo Samples"):
-        # currently only support batch_size=1
+        if i > 10:
+            break
+        # supports batch_size >= 1
         x1 = data['tokens'].to(device)
         x0 = data['noise'].to(device) # presampled noise
         y = data['num_faces'].to(device)
@@ -49,32 +55,40 @@ def do_sample_simple(model, valid_loader, device, transport, train_config, accel
         # When accelerator is configured with mixed_precision, we need explicit autocast during forward pass
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
             loss_dict = transport.training_losses(model, x1, x0, model_kwargs)
+        if 'cos_loss' in loss_dict:
+            mse_loss = loss_dict["loss"].mean()
+            cur_loss = loss_dict["cos_loss"].mean() + mse_loss
+        else:
+            cur_loss = loss_dict["loss"].mean()
+        running_val_loss += cur_loss.item()
+        val_steps += 1
 
         z = torch.randn_like(x0, device=device) # random sample noise
-        # y = torch.tensor([label], device=device)
         z = torch.cat([z, z], 0)
-        model_unwarp = accelerator.unwrap_model(model)
-        y_null = torch.tensor([model_unwarp.uncond_y] * 1, device=device) #TODO: pay attention; we are not 1000 classes
-        y = torch.cat([y// model_unwarp.face_bin, y_null], 0)
+        model_unwrap = accelerator.unwrap_model(model)
+        # forward_with_cfg internally builds unconditional labels using model_unwrap.uncond_y
+        # so we only pass conditional y here.
         model_kwargs = dict(y=y, cfg_scale=cfg_scale, mask=mask)
-        model_fn = model_unwarp.forward_with_cfg
+        model_fn = model_unwrap.forward_with_cfg
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
             # z: [2*bs, N, 9]
-            # y: [2*bs]
+            # y: [bs]
             # mask: [bs, N], no repeat
             samples = sample_fn(z, model_fn, **model_kwargs)[-1]
         images.append(samples)
-        # save meshes
-        save_mesh(samples[0].cpu().numpy(), f'{save_dir_mesh}/{i:03d}.obj', max_val=0.95/0.3)
+        # save meshes (only conditional half)
+        bs = x0.shape[0]
+        cond_samples = samples[:bs]
+        for b in range(bs):
+            save_mesh(cond_samples[b].cpu().numpy(), f'{save_dir_mesh}/{i:03d}_{b:02d}.obj', max_val=0.95/0.3)
     
-    
-    # update validation loss
-    if 'cos_loss' in loss_dict:
-        mse_loss = loss_dict["loss"].mean()
-        loss = loss_dict["cos_loss"].mean() + mse_loss
-    else:
-        loss = loss_dict["loss"].mean()
-    return loss
+    if was_training:
+        model.train()
+
+    # average validation loss on evaluated batches
+    if val_steps == 0:
+        return 0.0
+    return running_val_loss / val_steps
 
 
 # sample function

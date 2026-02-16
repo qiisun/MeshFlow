@@ -46,7 +46,7 @@ def generate_custom_prior(num_samples, var_scale=0.05):
     return np.concatenate([vertice23, vertice1], axis=1)  # [N, 3, 3]
 
 
-def save_mesh(tokens: np.ndarray, path: str, clean: bool = True, num_bins=2048, max_val=0.95):
+def save_mesh(tokens: np.ndarray, path: str, clean: bool = True, num_bins=2048, max_val=1):
     # [N, 3, 3] -> mesh
     def simple_detokenize_mesh(tokens: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         coords = tokens.reshape(-1, 3).astype(np.float32)
@@ -209,12 +209,12 @@ class ObjaverseDataset(Dataset):
         print(f"Total Combined Dataset Size: {len(self.data)}")
         
         if do_dataset_normalize:
-            self.std = 0.3
+            self.std = 0.3762
 
         # one-time config logs for debugging training behavior
         _highlight(f"{_cyan('noise_sort')} = {self.noise_sort} | {_cyan('OT')} = {_status(self.noise_sort == 'ot')}")
         _highlight(f"{_cyan('dataset_normalize')} = {_status(self.do_dataset_normalize)} | std = {getattr(self, 'std', 'N/A')}")
-        _highlight(f"{_cyan('final token scale')} = coords * (0.95 / 0.5) = 1.9")
+        _highlight(f"{_cyan('final token scale')} = coords * (1 / 0.5) = 1.9")
 
         # shuffle & augmentation behavior
         _highlight(f"{_cyan('raw mesh canonical sort (vertices/faces)')} = {_status(True)}")
@@ -359,7 +359,7 @@ class ObjaverseDataset(Dataset):
             if self.use_repa:
                 data_dict['f_feature'] = f_feature[perm_idx]
         # data_dict['face_area'] = compute_face_area_from_soup(coords) # [F]
-        data_dict['coords'] = coords.reshape(faces_num, -1)  * 0.95/ 0.5
+        data_dict['coords'] = coords.reshape(faces_num, -1)  * 1/ 0.5
         data_dict['num_faces'] = faces_num
         data_dict['len'] = faces_num
 

@@ -80,7 +80,7 @@ def do_sample_simple(model, valid_loader, device, transport, train_config, accel
         bs = x0.shape[0]
         cond_samples = samples[:bs]
         for b in range(bs):
-            save_mesh(cond_samples[b].cpu().numpy(), f'{save_dir_mesh}/{i:03d}_{b:02d}.obj', max_val=0.95/0.3)
+            save_mesh(cond_samples[b].cpu().numpy(), f'{save_dir_mesh}/{i:03d}_{b:02d}.obj', max_val=1/0.3762)
     
     if was_training:
         model.train()

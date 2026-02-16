@@ -2,7 +2,8 @@ support dataset
 - [x] single shape overfitting
 - [x] single shape, multiple meshes (dummy)
 - [x] shapenet
-- [ ] objaverse
+- [ ] objaverse 
+- [x] sketchfab (305972/770)
 
 support model
 - [x] MeshFlow: EquiDiT(no PE) / unordered meshes
@@ -18,6 +19,12 @@ support coupling
 - [x] independent coupling
 
 Default Model Size = 500M (24 layers+16 heads+1024 hidden dims)
+
+
+## Quick start
+```bash
+bash tools/run_train.sh configs/base_ordered.yaml
+```
 ----
 # MeshFlow
 MeshFlow based on lightingDiT.
@@ -74,6 +81,11 @@ rm dummy.tar.gz
 wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/shapenet.tar.gz # or objaverse
 tar xf shapenet.tar.gz
 rm shapenet.tar.gz
+
+# sketchfab converted mesh dataset
+wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/sketchlab.tar.gz
+tar xf sketchlab.tar.gz
+rm sketchlab.tar.gz
 
 wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/objaverse_occ_v5_ids.tar.gz 
 wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/split.tar.gz

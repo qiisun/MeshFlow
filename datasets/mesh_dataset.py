@@ -11,6 +11,27 @@ from torch.utils.data import Dataset, DataLoader
 import tqdm
 
 
+def _highlight(msg: str):
+    # yellow highlight in terminal
+    print(f"\033[1;33m[HIGHLIGHT]\033[0m {msg}")
+
+
+def _green(msg: str):
+    return f"\033[1;32m{msg}\033[0m"
+
+
+def _red(msg: str):
+    return f"\033[1;31m{msg}\033[0m"
+
+
+def _cyan(msg: str):
+    return f"\033[1;36m{msg}\033[0m"
+
+
+def _status(flag: bool):
+    return _green("ON") if flag else _red("OFF")
+
+
 def generate_custom_prior(num_samples, var_scale=0.05):
     """
     return [N, 3, 3]   triangle soup
@@ -189,6 +210,21 @@ class ObjaverseDataset(Dataset):
         
         if do_dataset_normalize:
             self.std = 0.3
+
+        # one-time config logs for debugging training behavior
+        _highlight(f"{_cyan('noise_sort')} = {self.noise_sort} | {_cyan('OT')} = {_status(self.noise_sort == 'ot')}")
+        _highlight(f"{_cyan('dataset_normalize')} = {_status(self.do_dataset_normalize)} | std = {getattr(self, 'std', 'N/A')}")
+        _highlight(f"{_cyan('final token scale')} = coords * (0.95 / 0.5) = 1.9")
+
+        # shuffle & augmentation behavior
+        _highlight(f"{_cyan('raw mesh canonical sort (vertices/faces)')} = {_status(True)}")
+        _highlight(f"{_cyan('triangle/face shuffle')} = {_status(self.use_permut_aug)}")
+        _highlight(f"{_cyan('triangle vertex-order shuffle')} = {_status(self.use_permut_aug)}")
+        _highlight(f"{_cyan('rotation aug')} = {_status(self.use_rot_aug)}")
+        if self.use_scale_aug:
+            _highlight(f"{_cyan('scale aug')} = {_status(True)} | range = [0.75, 1.25] per-axis")
+        else:
+            _highlight(f"{_cyan('scale aug')} = {_status(False)}")
             
     def __len__(self):
         return len(self.data)

@@ -89,6 +89,9 @@ def do_train(train_config, accelerator):
             face_cond=train_config['model'].get('face_cond', False),
             face_bin=train_config['model'].get('face_bin', 10),
             max_length=train_config['model'].get('max_length', 800),
+            use_nerf_pe=train_config['model'].get('use_nerf_pe', train_config['model'].get('use_coord_encoding', True)),
+            nerf_num_freqs=train_config['model'].get('nerf_num_freqs', 12),
+            nerf_input_range=train_config['model'].get('nerf_input_range', 3.0),
         )
     else:  # default: equidit
         model = DiT(
@@ -295,7 +298,7 @@ def do_train(train_config, accelerator):
                         "opt": opt.state_dict(),
                         "config": train_config,
                     }
-                    checkpoint_path = f"{checkpoint_dir}/{train_steps:07d}.pt"
+                    checkpoint_path = f"{checkpoint_dir}/{train_steps:08d}.pt"
                     torch.save(checkpoint, checkpoint_path)
                     if accelerator.is_main_process:
                         logger.info(f"Saved checkpoint to {checkpoint_path}")

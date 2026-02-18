@@ -6,6 +6,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from models.pe import NeRFEncoding
 
 
 def modulate(x, shift, scale):
@@ -246,6 +247,9 @@ class DiT_Llama(nn.Module):
         face_cond=False,
         face_bin=200,
         max_length=800,
+        use_nerf_pe=True,
+        nerf_num_freqs=12,
+        nerf_input_range=3.0,
     ):
         super().__init__()
 
@@ -255,7 +259,17 @@ class DiT_Llama(nn.Module):
         self.patch_size = patch_size
         self.face_cond = face_cond
         self.face_bin = face_bin
-        self.init_conv_seq = nn.Linear(in_channels * patch_size * patch_size, dim // 2, bias=True)
+        self.use_nerf_pe = use_nerf_pe
+        self.nerf_input_range = nerf_input_range
+        self.nerf_num_freqs = nerf_num_freqs
+
+        in_dim = in_channels * patch_size * patch_size
+        if self.use_nerf_pe:
+            if in_dim % 3 != 0:
+                raise ValueError(f"NeRF PE expects input channels multiple of 3, got {in_dim}")
+            self.pe_nerf = NeRFEncoding(num_freqs=self.nerf_num_freqs, include_input=True)
+            in_dim = (in_dim // 3) * self.pe_nerf.output_dim
+        self.init_conv_seq = nn.Linear(in_dim, dim // 2, bias=True)
 
         self.x_embedder = nn.Linear(patch_size * patch_size * dim // 2, dim, bias=True)
         nn.init.constant_(self.x_embedder.bias, 0)
@@ -298,8 +312,20 @@ class DiT_Llama(nn.Module):
     def patchify(self, x):
         return x
 
+    def nerf_encode(self, x):
+        # x: [B, N, C], C should be multiple of 3 (xyz groups)
+        b, n, c = x.shape
+        if c % 3 != 0:
+            raise ValueError(f"NeRF PE expects channel dim multiple of 3, got {c}")
+
+        x = x.view(b, n, c // 3, 3) / self.nerf_input_range
+        x = self.pe_nerf(x)
+        return x.view(b, n, -1)
+
     def forward(self, x, t, y, mask=None):
         self.freqs_cis = self.freqs_cis.to(x.device)
+        if self.use_nerf_pe:
+            x = self.nerf_encode(x)
         x = self.init_conv_seq(x)
 
         x = self.patchify(x)

@@ -7,16 +7,17 @@ class NeRFEncoding(nn.Module):
         super().__init__()
         self.num_freqs = num_freqs
         self.include_input = include_input
-        self.freq_bands = 2. ** torch.linspace(0., num_freqs - 1, num_freqs)
+        self.register_buffer("freq_bands", 2. ** torch.linspace(0., num_freqs - 1, num_freqs), persistent=False)
         self.output_dim = (3 * (2 * num_freqs + (1 if include_input else 0)))
 
     def forward(self, x):
         embed_fns = []
+        freq_bands = self.freq_bands.to(device=x.device, dtype=x.dtype)
         
         if self.include_input:
             embed_fns.append(x)
             
-        for freq in self.freq_bands:
+        for freq in freq_bands:
             embed_fns.append(torch.sin(x * freq * np.pi))
             embed_fns.append(torch.cos(x * freq * np.pi))
         return torch.cat(embed_fns, dim=-1)

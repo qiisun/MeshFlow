@@ -23,7 +23,7 @@ Default Model Size = 500M (24 layers+16 heads+1024 hidden dims)
 
 ## Quick start
 ```bash
-bash tools/run_train.sh configs/base_ordered.yaml
+bash tools/run_train.sh configs/base_ordered-120m.yaml
 ```
 ----
 # MeshFlow
@@ -83,9 +83,9 @@ tar xf shapenet.tar.gz
 rm shapenet.tar.gz
 
 # sketchfab converted mesh dataset
-wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/sketchlab.tar.gz
-tar xf sketchlab.tar.gz
-rm sketchlab.tar.gz
+wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/sketchfab.tar.gz
+tar xf sketchfab.tar.gz
+rm sketchfab.tar.gz
 
 wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/objaverse_occ_v5_ids.tar.gz 
 wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/split.tar.gz

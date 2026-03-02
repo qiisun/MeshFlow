@@ -1,0 +1,79 @@
+# we recommend to read config_details.yaml first.
+data:
+  data_path: './downloaded_data/ss_overfit'
+  valid_path: 'debug/valid'
+  num_workers: 8
+  do_dataset_normalize: True
+  noise_sort: 'random'
+  use_rot_aug: False  # <---- whether to use rotation augmentation when training
+  use_scale_aug: False  # <---- whether to use scaling augmentation when training
+  use_permute_aug: True  # <---- whether to use permutation augmentation when training
+
+# recommend to use default settings
+model:
+  model_type: "equidit"
+  use_qknorm: false
+  use_swiglu: true
+  use_rope: true
+  use_rmsnorm: true
+  wo_shift: false
+  # in_chans: 32
+
+  hidden_dim: 768
+  num_heads: 12
+  max_length: 800
+  input_dim: 9
+  num_layers: 12
+  gradient_checkpointing: False
+  use_coord_encoding: True
+  version: 3
+  pe_freq: 20
+  mixed_precision:
+  use_dit_like_pe: False
+  face_cond: True
+  face_bin: 20
+
+# recommend to use default settings
+train:
+  max_steps: 400000
+  global_batch_size: 16 # 4*7
+  global_seed: 0
+  output_dir: 'output'
+  exp_name: 'overfit-base-120m-x1' # <---- experiment name, set as you like
+  ckpt: null
+  log_every: 100
+  ckpt_every: 3000 # 3000 
+  use_repa: False
+  repa_idx: 3
+  
+optimizer:
+  lr: 0.0005
+  beta2: 0.95
+  
+# recommend to use default settings
+transport:
+  path_type: Linear
+  prediction: velocity
+  loss_weight: null
+  sample_eps: null
+  train_eps: null
+  use_cosine_loss: false # should be false all the time
+  use_lognorm: true
+  use_jit: true
+
+# recommend to use default settings
+sample:
+  mode: ODE
+  sampling_method: euler
+  atol: 0.000001
+  rtol: 0.0005
+  reverse: false
+  likelihood: false
+  num_sampling_steps: 50
+  cfg_scale: 10.0 
+  
+  # recommend to use default settings
+  per_proc_batch_size: 4
+  fid_num: 50000
+  cfg_interval_start: 0.11
+  timestep_shift: 0.3

@@ -201,7 +201,7 @@ class Transport:
         terms['pred'] = model_output
         terms['t'] = t  # Include timesteps for logging purposes
         if self.model_type == ModelType.VELOCITY:
-            terms['loss'] = mean_flat(((model_output - ut) ** 2)[mask]) # FIXME: Mask loss
+            terms['loss'] = mean_flat(((model_output - ut) ** 2)[mask])
             if self.use_cosine_loss:
                 terms['cos_loss'] = mean_flat(1 - th.nn.functional.cosine_similarity(model_output, ut, dim=1))
         else: 
@@ -245,6 +245,8 @@ class Transport:
             if self.use_jit:
                 model_output = (model_output - x) / (1 - t.unsqueeze(-1).unsqueeze(-1).clamp_min(5e-2))
             return model_output
+        
+
 
         if self.model_type == ModelType.NOISE:
             drift_fn = noise_ode

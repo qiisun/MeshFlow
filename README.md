@@ -23,7 +23,10 @@ Default Model Size = 500M (24 layers+16 heads+1024 hidden dims)
 
 ## Quick start
 ```bash
-bash tools/run_train.sh configs/base_ordered-120m.yaml
+bash tools/run_train.sh configs/overfit/base-500m.yaml
+bash tools/run_train.sh configs/overfit/base-120m.yaml
+bash tools/run_train.sh configs/overfit/base-500m.yaml
+
 ```
 ----
 # MeshFlow
@@ -77,6 +80,11 @@ cd downloaded_data
 wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/dummy.tar.gz # or objaverse
 tar xf dummy.tar.gz
 rm dummy.tar.gz
+
+wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/ss_overfit.tar.gz # or objaverse
+tar xf ss_overfit.tar.gz
+rm ss_overfit.tar.gz
+
 
 wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/shapenet.tar.gz # or objaverse
 tar xf shapenet.tar.gz

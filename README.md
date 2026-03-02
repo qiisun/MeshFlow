@@ -25,8 +25,8 @@ Default Model Size = 500M (24 layers+16 heads+1024 hidden dims)
 ```bash
 bash tools/run_train.sh configs/overfit/base-500m.yaml
 bash tools/run_train.sh configs/overfit/base-120m.yaml
-bash tools/run_train.sh configs/overfit/base-500m.yaml
-
+bash tools/run_train.sh configs/overfit/base-120m-ot.yaml
+bash tools/run_train.sh configs/overfit/base-120m-x1.yaml
 ```
 ----
 # MeshFlow

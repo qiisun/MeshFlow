@@ -31,7 +31,7 @@ model:
   mixed_precision:
   use_dit_like_pe: False
   face_cond: True
-  face_bin: 200
+  face_bin: 20
 
 # recommend to use default settings
 train:
@@ -39,7 +39,7 @@ train:
   global_batch_size: 16 # 4*4
   global_seed: 0
   output_dir: 'output'
-  exp_name: 'overfit-base-500m' # <---- experiment name, set as you like
+  exp_name: 'overfit-base-500m-x1' # <---- experiment name, set as you like
   ckpt: null
   log_every: 100
   ckpt_every: 3000 # 3000 
@@ -59,7 +59,7 @@ transport:
   train_eps: null
   use_cosine_loss: false # should be false all the time
   use_lognorm: true
-  use_jit: false
+  use_jit: true
 
 # recommend to use default settings
 sample:

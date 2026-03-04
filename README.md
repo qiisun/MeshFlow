@@ -52,26 +52,6 @@ pip install https://github.com/Dao-AILab/flash-attention/releases/download/v2.6.
 
 pip install -r requirements.txt
 
-# partfield
-mkdir third_party
-cd third_party
-git clone https://github.com/nv-tlabs/PartField.git
-cd PartField
-mkdir model
-wget https://huggingface.co/mikaelaangel/partfield-ckpt/resolve/main/model_objaverse.ckpt
-cd ..
-pip install lightning==2.2 h5py yacs trimesh scikit-image loguru boto3
-pip install mesh2sdf tetgen pymeshlab plyfile einops libigl polyscope potpourri3d simple_parsing arrgh open3d
-pip install torch-scatter -f https://data.pyg.org/whl/torch-2.4.1+cu124.html
-apt install libx11-6 libgl1 libxrender1
-pip install vtk
-
-# p3sam
-cd third_party/Hunyuan3D-Part/P3-SAM
-
-pip install viser fpsample trimesh numba gradio
-CUDA_VISIBLE_DEVICES=6, python auto_mask.py --mesh_path assets --output_path results/all
-
 # if you encounter errors..
 conda install nvidia/label/main::cuda-nvcc
 conda install nvidia/label/main::cuda-toolkit

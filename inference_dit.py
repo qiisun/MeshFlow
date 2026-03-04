@@ -12,9 +12,63 @@ from PIL import Image
 from tqdm import tqdm
 import torch.distributed as dist
 from accelerate import Accelerator
+import trimesh
 # local imports
 from transport import create_transport, Sampler
 from datasets.mesh_dataset import save_mesh
+from models.equivae import float_to_index_np, index_to_float_np
+
+# Try to import Chamfer distance
+try:
+    from utils.chamfer3D.dist_chamfer_3D import chamfer_3DDist
+    CHAMFER_AVAILABLE = True
+except:
+    CHAMFER_AVAILABLE = False
+    print("Warning: Chamfer distance not available")
+
+def tokens_to_mesh(tokens: np.ndarray, num_bins=204800, max_val=1, std=0.3762):
+    """
+    Convert tokens to trimesh object.
+    tokens: [N, 3, 3] or [N, 9] triangle soup format
+    
+    Note: tokens are in scaled space (divided by std).
+    We need to rescale them back before creating mesh.
+    """
+    # Reshape if needed
+    if tokens.ndim == 2:
+        tokens = tokens.reshape(-1, 3, 3)
+    
+    # Rescale tokens back to original scale (multiply by std)
+    tokens_rescaled = tokens * std
+    
+    # Extract vertices and faces
+    vertices = tokens_rescaled.reshape(-1, 3).astype(np.float32)
+    faces = np.arange(len(vertices)).reshape(-1, 3)
+    
+    # Dequantize
+    vertices = float_to_index_np(vertices, min_val=-max_val, max_val=max_val, num_bins=num_bins)
+    vertices = index_to_float_np(vertices, min_val=-max_val, max_val=max_val, num_bins=num_bins)
+    
+    # Create mesh
+    mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+    return mesh
+
+def sample_point_cloud(mesh: trimesh.Trimesh, num_samples: int = 4096):
+    """
+    Sample points from mesh surface.
+    Returns: [num_samples, 3] point cloud
+    """
+    if mesh.vertices.shape[0] < 3:
+        # If mesh is too small, just return vertices repeated
+        return np.tile(mesh.vertices[0], (num_samples, 1))
+    
+    try:
+        points, _ = trimesh.sample.sample_surface(mesh, count=num_samples)
+        return points
+    except:
+        # Fallback: sample from vertices randomly
+        indices = np.random.choice(len(mesh.vertices), size=num_samples, replace=True)
+        return mesh.vertices[indices]
 
 @torch.no_grad()
 def do_sample_simple(model, valid_loader, device, transport, train_config, accelerator, train_steps, save_dir):
@@ -38,9 +92,16 @@ def do_sample_simple(model, valid_loader, device, transport, train_config, accel
             timestep_shift=timestep_shift,
         )
     
+    # Initialize Chamfer distance calculator if available
+    if CHAMFER_AVAILABLE:
+        chamfer_dist = chamfer_3DDist()
+    
     images = []
     running_val_loss = 0.0
-    val_steps = 0
+    running_l2_loss = 0.0
+    running_chamfer_loss = 0.0
+    val_steps = 0    
+    total_samples = 0    
     for i, data in tqdm(enumerate(valid_loader), desc="Generating Demo Samples"):
         if i > 10:
             break
@@ -55,11 +116,7 @@ def do_sample_simple(model, valid_loader, device, transport, train_config, accel
         # When accelerator is configured with mixed_precision, we need explicit autocast during forward pass
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
             loss_dict = transport.training_losses(model, x1, x0, model_kwargs)
-        if 'cos_loss' in loss_dict:
-            mse_loss = loss_dict["loss"].mean()
-            cur_loss = loss_dict["cos_loss"].mean() + mse_loss
-        else:
-            cur_loss = loss_dict["loss"].mean()
+        cur_loss = loss_dict["loss"].mean()
         running_val_loss += cur_loss.item()
         val_steps += 1
 
@@ -79,16 +136,68 @@ def do_sample_simple(model, valid_loader, device, transport, train_config, accel
         # save meshes (only conditional half)
         bs = x0.shape[0]
         cond_samples = samples[:bs]
+        
+        # Calculate L2 distance between generated samples and ground truth
+        # Extract valid tokens using mask
         for b in range(bs):
+            valid_mask = mask[b].bool()
+            pred_vertices = cond_samples[b][valid_mask][:, :3]  # [N_valid, 3]
+            gt_vertices = x1[b][valid_mask][:, :3]  # [N_valid, 3]
+            
+            # L2 distance (MSE between vertices)
+            l2_dist = torch.mean((pred_vertices - gt_vertices) ** 2).item()
+            running_l2_loss += l2_dist
+            
+            # Chamfer distance using mesh-based point sampling
+            if CHAMFER_AVAILABLE:
+                try:
+                    # Convert tokens to mesh and sample point clouds
+                    pred_tokens = cond_samples[b][valid_mask].cpu().numpy()  # [N_valid, feature_dim]
+                    gt_tokens = x1[b][valid_mask].cpu().numpy()  # [N_valid, feature_dim]
+                    
+                    # Use std=0.3762 (from dataset) and max_val=1/0.3762 (dequantization range)
+                    MAX_VAL = 1.0 / 0.3762  # = 2.653
+                    STD = 0.3762
+                    
+                    pred_mesh = tokens_to_mesh(pred_tokens, num_bins=2048, max_val=MAX_VAL, std=STD)
+                    gt_mesh = tokens_to_mesh(gt_tokens, num_bins=2048, max_val=MAX_VAL, std=STD)
+                    
+                    # Sample 4096 points from each mesh
+                    pred_pc = sample_point_cloud(pred_mesh, num_samples=4096)  # [4096, 3]
+                    gt_pc = sample_point_cloud(gt_mesh, num_samples=4096)  # [4096, 3]
+                    
+                    # Convert to torch tensors
+                    pred_pc_torch = torch.from_numpy(pred_pc).unsqueeze(0).float().to(device)  # [1, 4096, 3]
+                    gt_pc_torch = torch.from_numpy(gt_pc).unsqueeze(0).float().to(device)  # [1, 4096, 3]
+                    
+                    # Calculate Chamfer distance
+                    dist1, dist2, _, _ = chamfer_dist(pred_pc_torch, gt_pc_torch)
+                    chamfer = (torch.mean(dist1) + torch.mean(dist2)).item()
+                    running_chamfer_loss += chamfer
+                except Exception as e:
+                    # If Chamfer calculation fails, use vertex-based distance
+                    pred_vertices_torch = pred_vertices.unsqueeze(0)  # [1, N_valid, 3]
+                    gt_vertices_torch = gt_vertices.unsqueeze(0)  # [1, N_valid, 3]
+                    dist1, dist2, _, _ = chamfer_dist(pred_vertices_torch, gt_vertices_torch)
+                    chamfer = (torch.mean(dist1) + torch.mean(dist2)).item()
+                    running_chamfer_loss += chamfer
+            
+            total_samples += 1
+            # Use consistent max_val for saving mesh (1/0.3762)
             save_mesh(cond_samples[b].cpu().numpy(), f'{save_dir_mesh}/{i:03d}_{b:02d}.obj', max_val=1/0.3762)
     
     if was_training:
         model.train()
 
     # average validation loss on evaluated batches
-    if val_steps == 0:
-        return 0.0
-    return running_val_loss / val_steps
+    if val_steps == 0 or total_samples == 0:
+        return 0.0, 0.0, 0.0
+    
+    avg_val_loss = running_val_loss / val_steps
+    avg_l2_loss = running_l2_loss / total_samples  # average over all samples
+    avg_chamfer_loss = running_chamfer_loss / total_samples if CHAMFER_AVAILABLE else 0.0
+    
+    return avg_val_loss, avg_l2_loss, avg_chamfer_loss
 
 
 # sample function

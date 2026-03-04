@@ -308,7 +308,7 @@ def do_train(train_config, accelerator):
                 if 'valid_path' in train_config['data']:
                     if accelerator.is_main_process: # only validate on main process
                         logger.info(f"Start evaluating at step {train_steps}")
-                        val_loss = do_sample_simple(model, 
+                        val_loss, l2_loss, chamfer_loss = do_sample_simple(model, 
                                                     valid_loader, 
                                                     device, 
                                                     transport, 
@@ -319,8 +319,10 @@ def do_train(train_config, accelerator):
                     # dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
                     # val_loss = val_loss.item() / dist.get_world_size()
                     if accelerator.is_main_process:
-                        logger.info(f"Validation Loss: {val_loss:.4f}")
+                        logger.info(f"Validation Loss: {val_loss:.4f}, L2 Loss: {l2_loss:.6f}, Chamfer Loss: {chamfer_loss:.6f}")
                         writer.add_scalar('Loss/validation', val_loss, train_steps)
+                        writer.add_scalar('Loss/L2', l2_loss, train_steps)
+                        writer.add_scalar('Loss/Chamfer', chamfer_loss, train_steps)
                     model.train()
             if train_steps >= train_config['train']['max_steps']:
                 break

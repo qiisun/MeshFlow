@@ -71,7 +71,16 @@ cd third_party/Hunyuan3D-Part/P3-SAM
 
 pip install viser fpsample trimesh numba gradio
 CUDA_VISIBLE_DEVICES=6, python auto_mask.py --mesh_path assets --output_path results/all
+
+# if you encounter errors..
+conda install nvidia/label/main::cuda-nvcc
+conda install nvidia/label/main::cuda-toolkit
+
+cd utils/chamfer3D
+python setup.py install
+cd ../..
 ```
+![](assets/chamfer.png)
 
 ### dataset
 ```bash

@@ -92,13 +92,15 @@ def do_sample_simple(model, valid_loader, device, transport, train_config, accel
             timestep_shift=timestep_shift,
         )
     
-    # Initialize Chamfer distance calculator if available
-    if CHAMFER_AVAILABLE:
+    is_overfit_dataset = train_config.get('data', {}).get('overfit', False)
+    compute_chamfer = is_overfit_dataset and CHAMFER_AVAILABLE
+
+    # Initialize Chamfer distance calculator only when needed
+    if compute_chamfer:
         chamfer_dist = chamfer_3DDist()
     
     images = []
     running_val_loss = 0.0
-    running_l2_loss = 0.0
     running_chamfer_loss = 0.0
     val_steps = 0    
     total_samples = 0    
@@ -137,19 +139,14 @@ def do_sample_simple(model, valid_loader, device, transport, train_config, accel
         bs = x0.shape[0]
         cond_samples = samples[:bs]
         
-        # Calculate L2 distance between generated samples and ground truth
         # Extract valid tokens using mask
         for b in range(bs):
             valid_mask = mask[b].bool()
             pred_vertices = cond_samples[b][valid_mask][:, :3]  # [N_valid, 3]
             gt_vertices = x1[b][valid_mask][:, :3]  # [N_valid, 3]
-            
-            # L2 distance (MSE between vertices)
-            l2_dist = torch.mean((pred_vertices - gt_vertices) ** 2).item()
-            running_l2_loss += l2_dist
-            
+
             # Chamfer distance using mesh-based point sampling
-            if CHAMFER_AVAILABLE:
+            if compute_chamfer:
                 try:
                     # Convert tokens to mesh and sample point clouds
                     pred_tokens = cond_samples[b][valid_mask].cpu().numpy()  # [N_valid, feature_dim]
@@ -181,8 +178,8 @@ def do_sample_simple(model, valid_loader, device, transport, train_config, accel
                     dist1, dist2, _, _ = chamfer_dist(pred_vertices_torch, gt_vertices_torch)
                     chamfer = (torch.mean(dist1) + torch.mean(dist2)).item()
                     running_chamfer_loss += chamfer
-            
-            total_samples += 1
+
+                total_samples += 1
             # Use consistent max_val for saving mesh (1/0.3762)
             save_mesh(cond_samples[b].cpu().numpy(), f'{save_dir_mesh}/{i:03d}_{b:02d}.obj', max_val=1/0.3762)
     
@@ -190,14 +187,13 @@ def do_sample_simple(model, valid_loader, device, transport, train_config, accel
         model.train()
 
     # average validation loss on evaluated batches
-    if val_steps == 0 or total_samples == 0:
-        return 0.0, 0.0, 0.0
+    if val_steps == 0:
+        return 0.0, 0.0
     
     avg_val_loss = running_val_loss / val_steps
-    avg_l2_loss = running_l2_loss / total_samples  # average over all samples
-    avg_chamfer_loss = running_chamfer_loss / total_samples if CHAMFER_AVAILABLE else 0.0
+    avg_chamfer_loss = running_chamfer_loss / total_samples if compute_chamfer and total_samples > 0 else 0.0
     
-    return avg_val_loss, avg_l2_loss, avg_chamfer_loss
+    return avg_val_loss, avg_chamfer_loss
 
 
 # sample function

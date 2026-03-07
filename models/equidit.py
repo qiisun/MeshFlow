@@ -389,16 +389,31 @@ class DiT(nn.Module):
         """
         Forward pass of SiT, but also batches the unconSiTional forward pass for classifier-free guidance.
         """
-        # x: [2, n, 9]
-        # t: [2,]
-        # y: [2,]
-        # mask: [1, n]
-        half = x[: len(x) // 2]
+        # x: [2*bs, n, 9]
+        half_n = len(x) // 2
+        half = x[:half_n]
         combined = torch.cat([half, half], dim=0)
+
+        if t.shape[0] == combined.shape[0]:
+            combined_t = t
+        else:
+            half_t = t[:half_n]
+            combined_t = torch.cat([half_t, half_t], dim=0)
+
+        cond_y = y[:half_n] if y.shape[0] >= half_n else y
+        uncond_y = torch.full_like(cond_y, self.uncond_y)
+        combined_y = torch.cat([cond_y, uncond_y], dim=0)
+
+        combined_mask = None
         if mask is not None:
-            mask = mask.repeat(2, 1) # repeat mask, [2, n]
+            if mask.shape[0] == combined.shape[0]:
+                combined_mask = mask
+            else:
+                mask_half = mask[:half_n]
+                combined_mask = torch.cat([mask_half, mask_half], dim=0)
+
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-            model_out = self.forward(combined, t=t, y=y, mask=mask)
+            model_out = self.forward(combined, t=combined_t, y=combined_y, mask=combined_mask)
         # For exact reproducibility reasons, we apply classifier-free guidance on only
         # three channels by default. The standard approach to cfg applies it to all channels.
         # This can be done by uncommenting the following line and commenting-out the line following that.

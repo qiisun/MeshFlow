@@ -42,7 +42,7 @@ train:
   exp_name: 'rebuttal-120m-x1-02933112' # <---- experiment name, set as you like
   ckpt: null
   log_every: 100
-  ckpt_every: 4000 # 3000 
+  ckpt_every: 5000 # 3000 
   use_repa: False
   repa_idx: 3
   

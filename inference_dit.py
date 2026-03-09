@@ -71,11 +71,24 @@ def sample_point_cloud(mesh: trimesh.Trimesh, num_samples: int = 4096):
         return mesh.vertices[indices]
 
 @torch.no_grad()
-def do_sample_simple(model, valid_loader, device, transport, train_config, accelerator, train_steps, save_dir):
+def do_sample_simple(
+    model,
+    valid_loader,
+    device,
+    transport,
+    train_config,
+    accelerator,
+    train_steps,
+    save_dir,
+    cfg_scale=None,
+    timestep_shift=None,
+):
     sampler = Sampler(transport)
-    mode = "ODE" # train_config['sample']['mode']
-    timestep_shift = 0
-    cfg_scale = 9.0
+    mode = train_config['sample'].get('mode', 'ODE')
+    if timestep_shift is None:
+        timestep_shift = train_config['sample'].get('timestep_shift', 0.0)
+    if cfg_scale is None:
+        cfg_scale = train_config['sample'].get('cfg_scale', 1.0)
     was_training = model.training
     model.eval()
     
@@ -91,6 +104,8 @@ def do_sample_simple(model, valid_loader, device, transport, train_config, accel
             reverse=train_config['sample']['reverse'],
             timestep_shift=timestep_shift,
         )
+    else:
+        raise NotImplementedError(f"Sampling mode {mode} is not supported.")
     
     is_overfit_dataset = train_config.get('data', {}).get('overfit', False)
     compute_chamfer = is_overfit_dataset and CHAMFER_AVAILABLE

@@ -263,7 +263,7 @@ def do_train(train_config, accelerator):
                 if accelerator.sync_gradients:
                     accelerator.clip_grad_norm_(model.parameters(), train_config['optimizer']['max_grad_norm'])
             opt.step()
-            update_ema(ema, model.module, decay=0.999) # 0.999 ema
+            update_ema(ema, model.module, decay=0.9999)
 
             # Log loss values:
             if 'cos_loss' in loss_dict:
@@ -309,7 +309,7 @@ def do_train(train_config, accelerator):
                     report_chamfer = train_config.get('data', {}).get('overfit', False)
                     if accelerator.is_main_process: # only validate on main process
                         logger.info(f"Start evaluating at step {train_steps}")
-                        val_loss, chamfer_loss = do_sample_simple(model, 
+                        val_loss, chamfer_loss = do_sample_simple(ema, 
                                                     valid_loader, 
                                                     device, 
                                                     transport, 

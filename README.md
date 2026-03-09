@@ -184,6 +184,31 @@ python post_mesh.py \
   --output_dir output/post/preprocess_49_steps_bench
 ```
 
+### EquiDiT mesh inference (sample .obj)
+
+`tools/infer_mesh_equidit.py` is a standalone sampling script for mesh EquiDiT checkpoints.
+It loads model config + checkpoint, runs ODE sampling, and saves generated meshes as `.obj` files.
+
+Example (for rebuttal-120m-x1-02933112 checkpoint):
+
+```bash
+conda run -n mflow env PYTHONPATH=/data1/sunqi/MeshFlow2 \
+python /data1/sunqi/MeshFlow2/tools/infer_mesh_equidit.py \
+  --config /data1/sunqi/MeshFlow2/configs/rebuttal/base-120m-x1.yaml \
+  --ckpt /data1/sunqi/MeshFlow2/output/rebuttal-120m-x1-02933112/checkpoints/00600000.pt \
+  --out-dir /data1/sunqi/MeshFlow2/output/rebuttal-120m-x1-02933112/infer_00600000 \
+  --num-samples 100 \
+  --batch-size 4 \
+  --num-faces 800
+```
+
+Notes:
+
+- If you run from project root, do not omit `tools/` in script path.
+- Prefer full paths (or project-root-relative paths) for `--config` and `--ckpt`.
+- `--num-faces` should not exceed model `max_length` in the config.
+- Optional args: `--cfg-scale`, `--num-steps`, `--max-val`.
+
 
 
 ### MeshFlow + Denoiser

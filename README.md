@@ -101,9 +101,11 @@ wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/shapenet
 tar xf shapenet-cls.tar.gz
 rm shapenet-cls.tar.gz
 
+wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/shapenet-rebuttal2.tar.gz
+tar xf shapenet-rebuttal2.tar.gz
+
 wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/shapenet-rebuttal.tar.gz
 tar xf shapenet-rebuttal.tar.gz
-
 
 cd ..
 ```
@@ -187,27 +189,50 @@ python post_mesh.py \
 ### EquiDiT mesh inference (sample .obj)
 
 `tools/infer_mesh_equidit.py` is a standalone sampling script for mesh EquiDiT checkpoints.
-It loads model config + checkpoint, runs ODE sampling, and saves generated meshes as `.obj` files.
+It loads model config + checkpoint, runs ODE sampling, saves generated meshes as `.obj`,
+can follow the test-set face count for each sample, saves GT test meshes, and automatically
+computes point-based metrics with [tools/point_evaluation.py](tools/point_evaluation.py).
 
-Example (for rebuttal-120m-x1-02933112 checkpoint):
+Recommended example: sample using test-set face counts and automatically evaluate against GT.
+
+```bash
+python tools/infer_mesh_equidit.py \
+  --config /data1/sunqi/MeshFlow2/configs/rebuttal/base-120m-x1.yaml \
+  --ckpt output/rebuttal-120m-x1-02933112/checkpoints/00750000.pt \
+  --out-dir output/rebuttal-120m-x1-02933112/infer_00750000_eval \
+  --num-samples 100 \
+  --batch-size 16 \
+  --use-test-faces
+```
+
+If you really want fixed-length sampling, you can still use `--num-faces`, but for evaluation
+against the test set the recommended mode is `--use-test-faces`.
+
+Notes:
+
+- If you run from project root, do not omit `tools/` in script path.
+- By default, `--use-test-faces` reads the validation/test split from `data.data_path` in the config.
+- `--test-data-path` is only an override if you want to evaluate on another dataset root.
+- `--use-test-faces` makes the script sample each mesh with its own GT validation/test face count instead of always using `800`.
+- The saved GT meshes come from that same validation/test split source, i.e. the same dataset root used by the script.
+- In `--use-test-faces` mode, the script also saves GT meshes to `--out-dir/gt_test_mesh`.
+- In `--use-test-faces` mode, the script automatically computes and saves point metrics to `--out-dir/point_metrics.json`.
+- Metrics include `JSD`, `lgan_mmd-CD`, `lgan_cov-CD`, `lgan_mmd_smp-CD`, `1-NN-CD-acc`, `1-NN-CD-acc_t`, `1-NN-CD-acc_f`.
+- Optional args: `--cfg-scale`, `--num-steps`, `--max-val`, `--eval-batch-size`, `--eval-num-points`.
+
+Optional override example:
 
 ```bash
 conda run -n mflow env PYTHONPATH=/data1/sunqi/MeshFlow2 \
 python /data1/sunqi/MeshFlow2/tools/infer_mesh_equidit.py \
   --config /data1/sunqi/MeshFlow2/configs/rebuttal/base-120m-x1.yaml \
-  --ckpt /data1/sunqi/MeshFlow2/output/rebuttal-120m-x1-02933112/checkpoints/00600000.pt \
-  --out-dir /data1/sunqi/MeshFlow2/output/rebuttal-120m-x1-02933112/infer_00600000 \
+  --ckpt /data1/sunqi/MeshFlow2/output/rebuttal-120m-x1-02808440/checkpoints/00255000.pt \
+  --out-dir /data1/sunqi/MeshFlow2/output/rebuttal-120m-x1-02808440/infer_00255000_eval \
   --num-samples 100 \
-  --batch-size 4 \
-  --num-faces 800
+  --batch-size 16 \
+  --use-test-faces \
+  --test-data-path /data1/sunqi/MeshFlow2/downloaded_data/shapenet-02876657
 ```
-
-Notes:
-
-- If you run from project root, do not omit `tools/` in script path.
-- Prefer full paths (or project-root-relative paths) for `--config` and `--ckpt`.
-- `--num-faces` should not exceed model `max_length` in the config.
-- Optional args: `--cfg-scale`, `--num-steps`, `--max-val`.
 
 
 

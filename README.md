@@ -30,6 +30,9 @@ bash tools/run_train.sh configs/overfit/base-120m-x1.yaml
 
 
 bash tools/run_train.sh configs/rebuttal/base-120m-x1.yaml
+
+bash tools/run_train.sh configs/pretrain/base-120m-x1.yaml
+
 ```
 ----
 # MeshFlow

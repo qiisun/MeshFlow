@@ -145,6 +145,7 @@ def do_train(train_config, accelerator):
     opt = torch.optim.AdamW(model.parameters(), lr=train_config['optimizer']['lr'], weight_decay=0, betas=(0.9, train_config['optimizer']['beta2']))
     
     # Setup data
+    max_face_length = train_config['data'].get('max_face_length', train_config['model'].get('max_length', 800))
     dataset = ObjaverseDataset(
         data_pth=train_config['data']['data_path'],
         training=True,
@@ -152,6 +153,7 @@ def do_train(train_config, accelerator):
         use_custom_prior=False,
         use_decimated_dataset=False,
         do_dataset_normalize=True,
+        max_face_length=max_face_length,
         vae=False,
         use_rot_aug=train_config['data']['use_rot_aug'],
         use_scale_aug=train_config['data']['use_scale_aug'],
@@ -166,7 +168,7 @@ def do_train(train_config, accelerator):
         num_workers=train_config['data']['num_workers'],
         pin_memory=True,
         drop_last=True,
-        collate_fn=partial(collate_fn, max_seq_length=800)
+        collate_fn=partial(collate_fn, max_seq_length=max_face_length)
     )
     if accelerator.is_main_process:
         logger.info(f"Dataset contains {len(dataset):,} images {train_config['data']['data_path']}")
@@ -180,6 +182,7 @@ def do_train(train_config, accelerator):
         use_custom_prior=False,
         use_decimated_dataset=False,
         do_dataset_normalize=True,
+        max_face_length=max_face_length,
         vae=False,
         use_rot_aug=False,
         use_scale_aug=False,
@@ -193,7 +196,7 @@ def do_train(train_config, accelerator):
             num_workers=train_config['data']['num_workers'],
             pin_memory=True,
             drop_last=False, # should drop last false for validation
-            collate_fn=partial(collate_fn, max_seq_length=800)
+            collate_fn=partial(collate_fn, max_seq_length=max_face_length)
         )
         if accelerator.is_main_process:
             logger.info(f"Validation Dataset contains {len(valid_dataset):,} images {train_config['data']['valid_path']}")

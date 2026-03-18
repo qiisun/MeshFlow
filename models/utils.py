@@ -10,156 +10,72 @@ license agreement from NVIDIA CORPORATION is strictly prohibited.
 -----------------------------------------------------------------------------
 '''
 
-import torch
+from typing import Callable, Optional
+
 import numpy as np
-import trimesh
-import megfile
-import sys
-sys.path.append('.')
-# from core.options import Options
-import logging
-
-def init_logger(filename):
-    logger = logging.getLogger(__name__)
-    logger.setLevel(logging.DEBUG)
-    formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
-
-    # write to file
-    handler = logging.FileHandler(filename, mode='w')
-    handler.setLevel(logging.DEBUG)
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-
-    # print to console
-    console = logging.StreamHandler()
-    console.setLevel(logging.DEBUG)
-    console.setFormatter(formatter)
-    logger.addHandler(console)
-    
-    return logger
-
-def load_mesh(path):
-    # path: string for local/s3 path
-    if path.startswith('s3'):
-        ext = path.split('.')[-1]
-        with megfile.smart_open(path, 'rb') as f:
-            _data = trimesh.load(file_obj=trimesh.util.wrap_as_stream(f.read()), file_type=ext)
-    else:
-        _data = trimesh.load(path)
-
-    # always convert scene to mesh, and apply all transforms...
-    if isinstance(_data, trimesh.Scene):
-        # print(f"[INFO] load trimesh: concatenating {len(_data.geometry)} meshes.")
-        _concat = []
-        # loop the scene graph and apply transform to each mesh
-        scene_graph = _data.graph.to_flattened() # dict {name: {transform: 4x4 mat, geometry: str}}
-        for k, v in scene_graph.items():
-            name = v['geometry']
-            if name in _data.geometry and isinstance(_data.geometry[name], trimesh.Trimesh):
-                transform = v['transform']
-                _concat.append(_data.geometry[name].apply_transform(transform))
-        _mesh = trimesh.util.concatenate(_concat)
-    else:
-        _mesh = _data
-    
-    vertices = _mesh.vertices
-    faces = _mesh.faces
-
-    return vertices, faces
+import torch
+from torch import Tensor, nn
+import torch.nn.functional as F
 
 
-def normalize_mesh(vertices, bound=0.95):
-    vmin = vertices.min(0)
-    vmax = vertices.max(0)
-    ori_center = (vmax + vmin) / 2
-    ori_scale = 2 * bound / np.max(vmax - vmin)
-    vertices = (vertices - ori_center) * ori_scale
-    return vertices
+class NeRFEncoding(nn.Module):
+    def __init__(self, num_freqs=10, include_input=True):
+        super().__init__()
+        self.num_freqs = num_freqs
+        self.include_input = include_input
+        self.register_buffer(
+            "freq_bands",
+            2.0 ** torch.linspace(0.0, num_freqs - 1, num_freqs),
+            persistent=False,
+        )
+        self.output_dim = 3 * (2 * num_freqs + (1 if include_input else 0))
+
+    def forward(self, x):
+        embed_fns = []
+        freq_bands = self.freq_bands.to(device=x.device, dtype=x.dtype)
+
+        if self.include_input:
+            embed_fns.append(x)
+
+        for freq in freq_bands:
+            embed_fns.append(torch.sin(x * freq * np.pi))
+            embed_fns.append(torch.cos(x * freq * np.pi))
+
+        return torch.cat(embed_fns, dim=-1)
 
 
-# def get_tokenizer(opt: Options):
-#     if opt.use_meto:
-#         from meto import Engine
-#         tokenizer = Engine(discrete_bins=opt.discrete_bins, backend=opt.meto_backend)
-#         vocab_size = tokenizer.num_tokens + 3
-#     else:
-#         tokenizer = None
-#         vocab_size = opt.discrete_bins + 3
-#     return tokenizer, vocab_size
+class SwiGLUFFN(nn.Module):
+    def __init__(
+        self,
+        in_features: int,
+        hidden_features: Optional[int] = None,
+        out_features: Optional[int] = None,
+        act_layer: Callable[..., nn.Module] = None,
+        drop: float = 0.0,
+        bias: bool = True,
+    ) -> None:
+        super().__init__()
+        del act_layer, drop
+        out_features = out_features or in_features
+        hidden_features = hidden_features or in_features
+        self.w12 = nn.Linear(in_features, 2 * hidden_features, bias=bias)
+        self.w3 = nn.Linear(hidden_features, out_features, bias=bias)
 
+    @torch.compile
+    def forward(self, x: Tensor) -> Tensor:
+        x12 = self.w12(x)
+        x1, x2 = x12.chunk(2, dim=-1)
+        hidden = F.silu(x1) * x2
+        return self.w3(hidden)
 
-def quantize_num_faces(n):
-    # 0: <=0, un cond
-    # 1: 0-1000, low-poly
-    # 2: 1000-2000, mid-poly
-    # 3: 2000-4000, high-poly
-    # 4: 4000-8000, ultra-poly
-    if isinstance(n, int):
-        if n <= 0:
-            return 0
-        elif n <= 1000:
-            return 1
-        elif n <= 2000:
-            return 2
-        elif n <= 4000:
-            return 3
-        elif n <= 8000:
-            return 4
-        else:
-            return 5
-    else: # torch tensor
-        results = torch.zeros_like(n)
-        # results[n <= 0] = 0
-        results[(n > 0) & (n <= 1000)] = 1
-        results[(n > 1000) & (n <= 2000)] = 2
-        results[(n > 2000) & (n <= 4000)] = 3
-        results[(n > 4000) & (n <= 8000)] = 4
-        results[n > 8000] = 5
-        return results
-    
-def monkey_patch_transformers():
-    import torch
-    import math
-    from transformers.generation.logits_process import PrefixConstrainedLogitsProcessor, ExponentialDecayLengthPenalty
-
-    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
-        mask = torch.full_like(scores, -math.inf)
-        # MODIFICATION: use input_ids.shape[0] instead of -1 to avoid confusion
-        for batch_id, beam_sent in enumerate(input_ids.view(input_ids.shape[0], self._num_beams, input_ids.shape[-1])):
-            for beam_id, sent in enumerate(beam_sent):
-                prefix_allowed_tokens = self._prefix_allowed_tokens_fn(batch_id, sent)
-                if len(prefix_allowed_tokens) == 0:
-                    raise ValueError(
-                        f"`prefix_allowed_tokens_fn` returned an empty list for batch ID {batch_id}."
-                        f"This means that the constraint is unsatisfiable. Please check your implementation"
-                        f"of `prefix_allowed_tokens_fn` "
-                    )
-                mask[batch_id * self._num_beams + beam_id, prefix_allowed_tokens] = 0
-
-        scores_processed = scores + mask
-        return scores_processed
-    
-    PrefixConstrainedLogitsProcessor.__call__ = __call__
-    print(f'[INFO] monkey patched PrefixConstrainedLogitsProcessor.__call__')
-
-
-#################################################################################
-#                   Sine/Cosine Positional Embedding Functions                  #
-#################################################################################
-# https://github.com/facebookresearch/mae/blob/main/util/pos_embed.py
 
 def get_2d_sincos_pos_embed(embed_dim, grid_size, cls_token=False, extra_tokens=0):
-    """
-    grid_size: int of the grid height and width
-    return:
-    pos_embed: [grid_size*grid_size, embed_dim] or [1+grid_size*grid_size, embed_dim] (w/ or w/o cls_token)
-    """
     grid_h = np.arange(grid_size, dtype=np.float32)
     grid_w = np.arange(grid_size, dtype=np.float32)
-    grid = np.meshgrid(grid_w, grid_h)  # here w goes first
+    grid = np.meshgrid(grid_w, grid_h)
     grid = np.stack(grid, axis=0)
-
     grid = grid.reshape([2, 1, grid_size, grid_size])
+
     pos_embed = get_2d_sincos_pos_embed_from_grid(embed_dim, grid)
     if cls_token and extra_tokens > 0:
         pos_embed = np.concatenate([np.zeros([extra_tokens, embed_dim]), pos_embed], axis=0)
@@ -168,65 +84,95 @@ def get_2d_sincos_pos_embed(embed_dim, grid_size, cls_token=False, extra_tokens=
 
 def get_2d_sincos_pos_embed_from_grid(embed_dim, grid):
     assert embed_dim % 2 == 0
-
-    # use half of dimensions to encode grid_h
-    emb_h = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[0])  # (H*W, D/2)
-    emb_w = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[1])  # (H*W, D/2)
-
-    emb = np.concatenate([emb_h, emb_w], axis=1) # (H*W, D)
-    return emb
+    emb_h = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[0])
+    emb_w = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[1])
+    return np.concatenate([emb_h, emb_w], axis=1)
 
 
 def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
-    """
-    embed_dim: output dimension for each position
-    pos: a list of positions to be encoded: size (M,)
-    out: (M, D)
-    """
     assert embed_dim % 2 == 0
     omega = np.arange(embed_dim // 2, dtype=np.float64)
-    omega /= embed_dim / 2.
-    omega = 1. / 10000**omega  # (D/2,)
+    omega /= embed_dim / 2.0
+    omega = 1.0 / 10000**omega
 
-    pos = pos.reshape(-1)  # (M,)
-    out = np.einsum('m,d->md', pos, omega)  # (M, D/2), outer product
-
-    emb_sin = np.sin(out) # (M, D/2)
-    emb_cos = np.cos(out) # (M, D/2)
-
-    emb = np.concatenate([emb_sin, emb_cos], axis=1)  # (M, D)
-    return emb
+    pos = pos.reshape(-1)
+    out = np.einsum('m,d->md', pos, omega)
+    emb_sin = np.sin(out)
+    emb_cos = np.cos(out)
+    return np.concatenate([emb_sin, emb_cos], axis=1)
 
 
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-#
-# This source code is licensed under the CC-by-NC license found in the
-# LICENSE file in the root directory of this source tree.
-"""This is an ad-hoc sampling schedule that was proposed in https://arxiv.org/abs/2206.00364 it works very well for cifar 10 so we added its implementation here. It did not yield an improvement on ImageNet."""
+class Embedder:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self.create_embedding_fn()
+
+    def create_embedding_fn(self):
+        embed_fns = []
+        input_dims = self.kwargs['input_dims']
+        out_dim = 0
+
+        if self.kwargs['include_input']:
+            embed_fns.append(lambda x: x)
+            out_dim += input_dims
+
+        max_freq = self.kwargs['max_freq_log2']
+        num_freqs = self.kwargs['num_freqs']
+
+        if self.kwargs['log_sampling']:
+            freq_bands = 2.0 ** torch.linspace(0.0, max_freq, steps=num_freqs)
+        else:
+            freq_bands = torch.linspace(2.0**0.0, 2.0**max_freq, steps=num_freqs)
+
+        for freq in freq_bands:
+            for periodic_fn in self.kwargs['periodic_fns']:
+                embed_fns.append(lambda x, p_fn=periodic_fn, f=freq: p_fn(x * f))
+                out_dim += input_dims
+
+        self.embed_fns = embed_fns
+        self.out_dim = out_dim
+
+    def embed(self, inputs):
+        return torch.cat([fn(inputs) for fn in self.embed_fns], -1)
 
 
-def get_time_discretization(nfes: int, rho=7):
-    step_indices = torch.arange(nfes, dtype=torch.float64)
-    sigma_min = 0.002
-    sigma_max = 80.0
-    sigma_vec = (
-        sigma_max ** (1 / rho)
-        + step_indices / (nfes - 1) * (sigma_min ** (1 / rho) - sigma_max ** (1 / rho))
-    ) ** rho
-    sigma_vec = torch.cat([sigma_vec, torch.zeros_like(sigma_vec[:1])])
-    time_vec = (sigma_vec / (1 + sigma_vec)).squeeze()
-    t_samples = 1.0 - torch.clip(time_vec, min=0.0, max=1.0)
-    return t_samples
+def get_embedder(multires, input_dims=9, i=0):
+    if i == -1:
+        return nn.Identity(), 3
 
-def plot_face_loss(pred, mask, face_prop):
-    import matplotlib.pyplot as plt
-    plt.figure()
-    plt.plot(face_prop, pred[mask].detach().cpu().numpy(), 'o', label='pred')
-    plt.plot(face_prop, mask.float().detach().cpu().numpy(), 'o', label='mask')
-    plt.legend()
-    plt.show()
+    embed_kwargs = {
+        'include_input': True,
+        'input_dims': input_dims,
+        'max_freq_log2': multires - 1,
+        'num_freqs': multires,
+        'log_sampling': True,
+        'periodic_fns': [torch.sin, torch.cos],
+    }
+    embedder_obj = Embedder(**embed_kwargs)
+    embed = lambda x, eo=embedder_obj: eo.embed(x)
+    return embed, embedder_obj.out_dim
+
+
+class RMSNorm(nn.Module):
+    def __init__(self, dim: int, eps: float = 1e-6):
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(dim))
+
+    def _norm(self, x):
+        return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
+
+    def forward(self, x):
+        output = self._norm(x.float()).type_as(x)
+        return output * self.weight
+
 
 if __name__ == '__main__':
-    time_grid = get_time_discretization(nfes=50)
-    print(time_grid)
+    embed_fn, input_ch = get_embedder(10)
+    x = torch.rand((2, 8, 9))
+    y = embed_fn(x)
+    print(f"embedder out: {y.shape}, channels: {input_ch}")
+
+    encoder = NeRFEncoding(num_freqs=10)
+    encoded_x = encoder(torch.randn(2, 8, 3))
+    print(f"nerf out: {encoded_x.shape}, channels: {encoder.output_dim}")

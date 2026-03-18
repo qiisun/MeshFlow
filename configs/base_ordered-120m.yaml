@@ -27,12 +27,6 @@ data:
   use_scale_aug: False  # <---- whether to use scaling augmentation when training
   use_permute_aug: False  # <---- whether to use permutation augmentation when training
 
-
-# recommend to use default settings (we wil release codes with SD-VAE later)
-# vae:
-#   model_name: 'vavae_f16d32'
-#   downsample_ratio: 16
-
 # recommend to use default settings
 model:
   model_type: "dit_llama"

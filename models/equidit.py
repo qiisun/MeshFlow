@@ -1,13 +1,11 @@
-import sys
-sys.path.append('.')
 import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
-from models.pos_embed import get_embedder
-from models.swiglu_ffn import SwiGLUFFN 
-from models.rmsnorm import RMSNorm
+from models.utils import get_embedder
+from models.utils import SwiGLUFFN
+from models.utils import RMSNorm
 from models.attention import SelfAttention
 from models.utils import get_2d_sincos_pos_embed
 
@@ -44,7 +42,6 @@ class FeedForward(nn.Module):
         if version == 3:
             if mask is not None:
                 B, N, D = x.shape
-                # Maks is (B, N), X is (B, N, D)
                 x = x.reshape(B, N//3, 3, D)[mask]
             y = self.net(x)
             if mask is not None:
@@ -159,26 +156,6 @@ class XEmbedder(nn.Module):
             return x_emb
     
 
-class VertexCrossAttention(nn.Module):
-    def __init__(self, modulation_type="add", hidden_dim=1024):
-        super().__init__()
-        self.modulation_type = modulation_type
-        if self.modulation_type == "concat":
-            self.linear = nn.Linear(hidden_dim * 2, hidden_dim, bias=True)
-    
-    def forward(self, x, x_):
-        # [B, 3, C] x [B, 1, C] -> [B, 3, C]
-        if self.modulation_type == "add":
-            return  x + x_.repeat(1, 3, 1)
-        elif self.modulation_type == "mult":
-            return  x * x_.repeat(1, 3, 1)
-        elif self.modulation_type == "concat":
-            return self.linear(torch.cat([x, x_.repeat(1, 3, 1)], dim=-1))
-        else:
-            raise ValueError(f"Invalid modulation type: {self.modulation_type}")
-        
-
-    
 # PixArtAlpha-style
 class DiTLayer(nn.Module):
     def __init__(self, dim, num_heads, gradient_checkpointing=True, mixed_precision='bf16', 
@@ -260,7 +237,6 @@ class DiT(nn.Module):
         self.version = version
         self.use_coord_encoding = use_coord_encoding
         self.hidden_size = hidden_dim
-        self.use_repa = use_repa
         self.is_latent = is_latent
         self.use_dit_like_pe = use_dit_like_pe
         
@@ -289,17 +265,6 @@ class DiT(nn.Module):
         # project out     
         self.final_layer = FinalLayer(hidden_dim, input_dim, use_rmsnorm=use_rmsnorm) # input_dim: 9 for v2, 3 for v3
         
-        if self.use_repa:
-            self.proj = nn.Sequential(
-                nn.Sequential(
-                    nn.Linear(hidden_dim, hidden_dim),
-                    nn.SiLU(),
-                    nn.Linear(hidden_dim, hidden_dim),
-                    nn.SiLU(),
-                    nn.Linear(hidden_dim, 448),
-                )
-            )
-
         self.initialize_weights()
     
 
@@ -369,12 +334,6 @@ class DiT(nn.Module):
         else:
             c = t 
 
-        # transformer layers
-        # if self.version > 2: # v3
-        #     x = x.reshape(B, N*3, -1) # [B, N*3, C]
-        # else:
-        #     x = x
-            
         for layer in self.layers:
             x = layer(x, c, mask=mask)
         
@@ -414,10 +373,6 @@ class DiT(nn.Module):
 
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
             model_out = self.forward(combined, t=combined_t, y=combined_y, mask=combined_mask)
-        # For exact reproducibility reasons, we apply classifier-free guidance on only
-        # three channels by default. The standard approach to cfg applies it to all channels.
-        # This can be done by uncommenting the following line and commenting-out the line following that.
-        # eps, rest = model_out[:, :self.in_channels], model_out[:, self.in_channels:]
         cond_vel, uncond_vel = torch.split(model_out, len(model_out) // 2, dim=0)
         half_vel = uncond_vel + cfg_scale * (cond_vel - uncond_vel)
         vel = torch.cat([half_vel, half_vel], dim=0)
@@ -446,90 +401,3 @@ class FinalLayer(nn.Module):
         x = modulate(self.norm_final(x), shift, scale)
         x = self.linear(x)
         return x
-
-
-if __name__ == '__main__':
-    from kiui.nn.utils import count_parameters
-    
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    version = 3
-    model = DiT(version=version).to(device)
-    model.eval()
-    
-    total, trainable = count_parameters(model)
-    print(f'[INFO] param total: {total/1024**2:.2f}M, trainable: {trainable/1024**2:.2f}M')
-
-    # test forward
-    x = torch.randn(4, 800, 9, device=device, dtype=torch.bfloat16)
-    t = torch.randint(0, 1000, (4,), device=device)
-    c = torch.randint(0, 55, (4,), device=device) # [B,]
-    mask = torch.ones_like(x[:, :, 0], device=device, dtype=torch.bool) # [B, N]
-    x_attn = torch.randn(4, 800, 1024, device=device, dtype=torch.bfloat16)
-    
-    model_attneion = SelfAttention(1024, 16, 1024, 1024, dropout=0.0).to(device)
-    
-    def model_foward(x):
-        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-            y = model(x, t, c, None)
-        return y
-    
-    model_foward(x)
-
-    def test_eq_attn(x):
-        # 只permute face
-        with torch.autocast(device_type='cuda', dtype=torch.float32):
-            y = model_attneion(x_attn)
-        
-        perm_face = torch.randperm(x.shape[1])
-        x_perm_face = x_attn[:, perm_face]
-        with torch.autocast(device_type='cuda', dtype=torch.float32):
-            y_perm_face = model_attneion(x_perm_face)
-        print(y_perm_face[0,0,], y[:, perm_face][0,0])
-        # print(torch.norm(y_perm_face-y).item() / torch.norm(y_perm_face).item() )
-        print(torch.max(torch.abs(y_perm_face-y[:, perm_face]) / (torch.abs(y_perm_face)+ 1e-6)))
-
-    def test_eq_face(x):
-        # 只permute face
-        y = model_foward(x)
-        perm_face = torch.randperm(x.shape[1])
-        x_perm_face = x[:, perm_face]
-        y_perm_face = model_foward(x_perm_face)
-        perm_y = y[:, perm_face]
-        print(y_perm_face[0,0,], y[:, perm_face][0,0])
-        print(torch.max(torch.abs(y_perm_face - y) / (torch.abs(y_perm_face)+ 1e-6)))
-        print(torch.max(torch.abs(y_perm_face - perm_y) / (torch.abs(y_perm_face)+ 1e-6)))
-        print(torch.mean(torch.abs(y_perm_face - y) / (torch.abs(y_perm_face)+ 1e-6)))
-        print(torch.mean(torch.abs(y_perm_face - perm_y) / (torch.abs(y_perm_face)+ 1e-6)))
-
-
-    def test_eq_vertex(x):
-        # permute face和vertex
-        y = model_foward(x)
-        x = x.view(x.shape[0], x.shape[1], 3, -1)
-        perm_vertex = torch.randperm(x.shape[2])
-        x_perm = x[:,:, perm_vertex].view(x.shape[0], x.shape[1], -1)
-        y_perm = model_foward(x_perm) # [BS, N, 9]
-        
-        # prepare the permuted y
-        perm_y = y.view(x.shape[0], x.shape[1], 3, -1)
-        perm_y = perm_y[:,:, perm_vertex].view(x.shape[0], x.shape[1], -1) # [BS, N, 9]
-        
-        # check
-        print(y_perm[0,0], perm_y[0,0])
-        print(torch.max(torch.abs(y_perm - y) / (torch.abs(y_perm)+ 1e-6)))
-        print(torch.max(torch.abs(y_perm - perm_y) / (torch.abs(y_perm)+ 1e-6)))
-        print(torch.mean(torch.abs(y_perm - y) / (torch.abs(y_perm)+ 1e-6)))
-        print(torch.mean(torch.abs(y_perm - perm_y) / (torch.abs(y_perm)+ 1e-6)))
-        
-        
-    def test_eq_random_shuffle(x):
-        # permute 不同的face的vertex 
-        y = model_foward(x)
-        perm_face, perm_vertex = torch.randperm(x.shape[1]), torch.randperm(x.shape[2])
-        x_perm_face = x[:, perm_face][:,:, perm_vertex]
-        y_perm_face = model_foward(x_perm_face)
-        print(torch.allclose(y_perm_face, y[:, perm_face][:, :, perm_vertex]))
-    
-    # test_eq_face(x)
-    # test_eq_attn(x_attn)
-    # test_eq_vertex(x)

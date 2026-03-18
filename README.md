@@ -20,6 +20,17 @@ support coupling
 
 Default Model Size = 500M (24 layers+16 heads+1024 hidden dims)
 
+## Core workflow (clean)
+
+Core entrypoints:
+- `train_pixel.py` (main training)
+- `inference_dit.py` (main sampling/inference)
+- `train_vae.py` / `eval_vae.py` (VAE)
+
+Compatibility wrappers kept for old commands:
+- `train_pixel_single.py` -> wraps `train_pixel.py`
+- `inference.py` -> wraps `inference_dit.py`
+
 
 ## Quick start
 ```bash
@@ -27,8 +38,6 @@ bash tools/run_train.sh configs/overfit/base-500m.yaml
 bash tools/run_train.sh configs/overfit/base-120m.yaml
 bash tools/run_train.sh configs/overfit/base-120m-ot.yaml
 bash tools/run_train.sh configs/overfit/base-120m-x1.yaml
-
-
 bash tools/run_train.sh configs/rebuttal/base-120m-x1.yaml
 ```
 ----
@@ -157,7 +166,7 @@ accelerate launch eval_vae.py \
 ```bash
 # training
 bash tools/run_train.sh configs/base_jit.yaml
-CUDA_VISIBLE_DEVICES=6, python train_pixel_single.py --config configs/base_jit.yaml
+CUDA_VISIBLE_DEVICES=6, python train_pixel.py --config configs/base_jit.yaml
 ```
 
 ### Extract feature

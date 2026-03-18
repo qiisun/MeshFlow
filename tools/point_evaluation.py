@@ -1,13 +1,42 @@
 """
 From https://github.com/stevenygd/PointFlow/tree/master/metrics
 """
-import torch
-import numpy as np
+import argparse
+import json
+import os
 import warnings
+
+import numpy as np
+import torch
+import trimesh
 from scipy.stats import entropy
 from sklearn.neighbors import NearestNeighbors
 from numpy.linalg import norm
 from tqdm.auto import tqdm
+
+try:
+    from chamferdist import ChamferDistance
+except ImportError:
+    ChamferDistance = None
+
+
+DEFAULT_CATEGORY_MAP = {
+    '02691156': 'airplane',
+    '02808440': 'bathtub',
+    '02933112': 'cabinet',
+    '03211117': 'display',
+    '02876657': 'bottle',
+    '03691459': 'loudspeaker',
+}
+
+DEFAULT_MESHXL_PREFIX_MAP = {
+    '02691156': '0_',
+    '02808440': '1_',
+    '02876657': '2_',
+    '02933112': '3_',
+    '03211117': '4_',
+    '03691459': '5_',
+}
 
 def normalize_mesh(vertices, bound=0.95):
     vmin = vertices.min(0)
@@ -55,16 +84,15 @@ def EMD_CD(sample_pcs, ref_pcs, batch_size, reduced=True, accelerated_cd=True):
     cd_lst = []
     emd_lst = []
     iterator = range(0, N_sample, batch_size)
-    chamferDist = ChamferDistance()
+    chamfer_dist = ChamferDistance() if accelerated_cd and ChamferDistance is not None else None
 
     for b_start in tqdm(iterator, desc='EMD-CD'):
         b_end = min(N_sample, b_start + batch_size)
         sample_batch = sample_pcs[b_start:b_end]
         ref_batch = ref_pcs[b_start:b_end]
 
-        if accelerated_cd:
-            dl, dr = chamferDist(sample_batch, ref_batch)
-                
+        if chamfer_dist is not None:
+            dl, dr = chamfer_dist(sample_batch, ref_batch)
         else:
             dl, dr = distChamfer(sample_batch, ref_batch)
 
@@ -382,53 +410,227 @@ def sample_point_cloud(meshes, num_points=2048):
     ps = np.stack(ps)
     return ps
 
-if __name__ == '__main__': 
-    from core.util.plot_utils import find_obj_files
-    
-    # obj_dir_gen = 'mesh_gen/500_OT_shuffle_no_dec'
-    # for step in [100, 50, 20, 10, 5, 2]:
-    for step in [200]:
-        for catgory in ["lamp", "table"]:
-            # catgory = 'lamp'
-            # obj_dir_valid = f'/home/Grendel/meshflow/MeshFlow/downloaded_data/test_{catgory}'
-            obj_dir_valid = f'downloaded_data/test_{catgory}'
-            # eval_dir = f'/home/sunqi/exps/mesh_project/03_comp/MeshXL/outputs-{catgory}/sampled'
-            if catgory == 'bench':
-                eval_dir = '/home/sunqi/exps/mesh_project/02_code/MeshGen/downloaded_data/pretrained/bench/iter446000/eval_nsteps200_nsmp1000infer_cfg1.0_processed'
-                
-            elif catgory == 'lamp':
-                eval_dir = '/home/sunqi/exps/mesh_project/02_code/MeshGen/downloaded_data/pretrained/lamp/iter346000/eval_nsteps200_nsmp1000infer_cfg1.0_processed'
-            elif catgory == 'chair':
-                eval_dir = '/home/sunqi/exps/mesh_project/02_code/MeshGen/downloaded_data/pretrained/chair/iter490000/eval_nsteps200_nsmp1000infer_cfg1.0_processed'
-                # eval_dir = "downloaded_data/pretrained/chair/iter490000/eval_nsteps50_nsmp580infer_cfg6.0"
-                # eval_dir = "MeshFlow2/output/post_process/chair_sota"
-            elif catgory == 'table':
-                eval_dir = '/home/sunqi/exps/mesh_project/02_code/MeshGen/downloaded_data/pretrained/table/iter490000/eval_nsteps200_nsmp1000infer_cfg1.0_processed'
-                # eval_dir = "MeshFlow2/recon_results"
-                # eval_dir = "MeshFlow2/output/post_process/table_1"
+def list_obj_paths(root_dir):
+    obj_paths = []
+    for current_root, _, filenames in os.walk(root_dir):
+        for filename in filenames:
+            if filename.lower().endswith('.obj'):
+                obj_paths.append(os.path.join(current_root, filename))
+    return sorted(obj_paths)
 
-            # eval_dir = f"/home/sunqi/exps/mesh_project/03_comp/workspace_abl_chair_naive_coup_990k/iter10000/eval_nsteps{step}_nsmp500infer_cfg6.0" 
-            def evaluate_ds_multi(obj_dir_gen_all = 'mesh_gen/500_OT_shuffle_no_dec'):
-                for i in range(1, 16):
-                    obj_dir_gen = f"{obj_dir_gen_all}/ep{i}000"
-                    evaluate_single(obj_dir_gen)
-                
-            def evaluate_single(obj_dir_gen= 'mesh_gen/pi_ot_ema_0_999_lr_5e4_ep_32k'):
-                meshes_gen, _ = find_obj_files(obj_dir_gen, max_files=1000)
-                meshes_valid, _ = find_obj_files(obj_dir_valid, max_files=1000)
-                print(len(meshes_valid), len(meshes_gen))
-                meshes_gen = meshes_gen[:len(meshes_valid)]
-                ps_gen = sample_point_cloud(meshes_gen)
-                ps_valid = sample_point_cloud(meshes_valid)
-                jsd = jsd_between_point_cloud_sets(ps_gen, ps_valid)
-                print(jsd)
-                ps_gen, ps_valid = torch.tensor(ps_gen).cuda(), torch.tensor(ps_valid).cuda()
-                print(compute_all_metrics(ps_gen, ps_valid, batch_size=128))
-            
-            evaluate_single(eval_dir)
-    # evaluate_single('mesh_gen/pi_ot_ema_0_999_lr_1e4_ep_16k_pmean_36')
-    # less meshes --> lower jsd
-    # mmd
-    # 1-NNA: lower than meshgpt
-    # cov: very high for all
-    
+
+def load_meshes_from_paths(obj_paths):
+    meshes = []
+    for obj_path in tqdm(obj_paths, desc='Loading generated meshes'):
+        mesh = trimesh.load_mesh(obj_path, process=False)
+        if isinstance(mesh, trimesh.Scene):
+            mesh = trimesh.util.concatenate(tuple(mesh.geometry.values()))
+        meshes.append(mesh)
+    return meshes
+
+
+def load_generated_meshes(gen_root, max_meshes=None, prefix=None):
+    obj_paths = list_obj_paths(gen_root)
+    if prefix is not None:
+        normalized_root = os.path.abspath(gen_root)
+        filtered_paths = []
+        for obj_path in obj_paths:
+            rel_path = os.path.relpath(obj_path, normalized_root)
+            top_level = rel_path.split(os.sep, 1)[0]
+            if top_level.startswith(prefix):
+                filtered_paths.append(obj_path)
+        obj_paths = filtered_paths
+
+    if not obj_paths:
+        raise FileNotFoundError(
+            f'No .obj files found under {gen_root}' if prefix is None else f'No .obj files found under {gen_root} for prefix {prefix}'
+        )
+
+    if max_meshes is not None:
+        obj_paths = obj_paths[:max_meshes]
+
+    meshes = load_meshes_from_paths(obj_paths)
+    return meshes, obj_paths
+
+
+def load_gt_meshes(data_root, synset_id, max_meshes=None, max_face_length=800):
+    dataset_dir = os.path.join(data_root, f'shapenet-{synset_id}')
+    split_path = os.path.join(dataset_dir, 'split', 'test.npz')
+    data_dir = os.path.join(dataset_dir, 'objaverse_occ_v5_ids')
+
+    if not os.path.exists(split_path):
+        raise FileNotFoundError(f'Test split file not found: {split_path}')
+    if not os.path.exists(data_dir):
+        raise FileNotFoundError(f'Dataset directory not found: {data_dir}')
+
+    split = np.load(split_path, allow_pickle=True)['npz_list'].tolist()
+    gt_meshes = []
+    gt_uids = []
+
+    for item in split:
+        uid = item['uid']
+        mesh_path = os.path.join(data_dir, f'{uid}.npz')
+        if not os.path.exists(mesh_path):
+            continue
+
+        try:
+            loaded = np.load(mesh_path, allow_pickle=True)
+            num_faces = int(loaded['faces_num'])
+            if num_faces <= 20 or num_faces >= max_face_length:
+                continue
+
+            gt_mesh = trimesh.Trimesh(
+                vertices=loaded['vertices'].astype(np.float32),
+                faces=loaded['faces'].astype(np.int64),
+                process=False,
+            )
+            gt_meshes.append(gt_mesh)
+            gt_uids.append(uid)
+            if max_meshes is not None and len(gt_meshes) >= max_meshes:
+                break
+        except Exception as exc:
+            print(f'[WARN] Failed to load GT mesh {mesh_path}: {exc}')
+
+    if not gt_meshes:
+        raise RuntimeError(f'No valid GT meshes found for {synset_id} under {dataset_dir}')
+
+    return gt_meshes, gt_uids, dataset_dir
+
+
+def evaluate_mesh_sets(gen_meshes, gt_meshes, batch_size=128, num_points=2048, device=None):
+    if len(gen_meshes) != len(gt_meshes):
+        target_count = min(len(gen_meshes), len(gt_meshes))
+        print(f'[INFO] Aligning mesh counts to {target_count} (gen={len(gen_meshes)}, gt={len(gt_meshes)})')
+        gen_meshes = gen_meshes[:target_count]
+        gt_meshes = gt_meshes[:target_count]
+
+    ps_gen = sample_point_cloud(gen_meshes, num_points=num_points)
+    ps_gt = sample_point_cloud(gt_meshes, num_points=num_points)
+    jsd = float(jsd_between_point_cloud_sets(ps_gen, ps_gt))
+
+    if device is None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    ps_gen_t = torch.from_numpy(ps_gen).float().to(device)
+    ps_gt_t = torch.from_numpy(ps_gt).float().to(device)
+    metric_tensors = compute_all_metrics(ps_gen_t, ps_gt_t, batch_size=batch_size)
+
+    metrics = {
+        'JSD': jsd,
+        'num_meshes': len(gen_meshes),
+    }
+    for key, value in metric_tensors.items():
+        metrics[key] = float(value.detach().cpu().item()) if torch.is_tensor(value) else float(value)
+    return metrics
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='Evaluate generated meshes against ShapeNet test splits.')
+    parser.add_argument(
+        '--gen-root',
+        type=str,
+        default='output/meshxl',
+        help='Directory containing generated .obj files. Recursively searched.',
+    )
+    parser.add_argument(
+        '--data-root',
+        type=str,
+        default='downloaded_data',
+        help='Root directory that contains shapenet-<synset> folders.',
+    )
+    parser.add_argument(
+        '--categories',
+        nargs='+',
+        default=list(DEFAULT_CATEGORY_MAP.keys()),
+        help='ShapeNet synset ids to evaluate.',
+    )
+    parser.add_argument(
+        '--prefix-map',
+        type=str,
+        default=None,
+        help='Optional JSON string mapping synset ids to MeshXL directory prefixes, e.g. {"02691156":"0_"}.',
+    )
+    parser.add_argument('--max-gen-meshes', type=int, default=None)
+    parser.add_argument('--max-face-length', type=int, default=800)
+    parser.add_argument('--batch-size', type=int, default=128)
+    parser.add_argument('--num-points', type=int, default=2048)
+    parser.add_argument(
+        '--output-json',
+        type=str,
+        default=None,
+        help='Optional summary json path. Defaults to <gen-root>/point_eval_summary.json',
+    )
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+    prefix_map = dict(DEFAULT_MESHXL_PREFIX_MAP)
+    if args.prefix_map is not None:
+        prefix_map.update(json.loads(args.prefix_map))
+
+    results = {}
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    for synset_id in args.categories:
+        category_name = DEFAULT_CATEGORY_MAP.get(synset_id, synset_id)
+        print(f'\n[INFO] Evaluating {category_name} ({synset_id})')
+        prefix = prefix_map.get(synset_id)
+        if prefix is None:
+            print(f'[WARN] No MeshXL prefix mapping found for {synset_id}, skipping')
+            continue
+
+        try:
+            gen_meshes, gen_paths = load_generated_meshes(
+                args.gen_root,
+                max_meshes=args.max_gen_meshes,
+                prefix=prefix,
+            )
+        except FileNotFoundError as exc:
+            print(f'[WARN] {exc}; skipping {synset_id}')
+            continue
+
+        print(f'[INFO] Loaded {len(gen_meshes)} generated meshes from {args.gen_root} for prefix {prefix}')
+        gt_meshes, gt_uids, dataset_dir = load_gt_meshes(
+            args.data_root,
+            synset_id,
+            max_meshes=len(gen_meshes),
+            max_face_length=args.max_face_length,
+        )
+        metrics = evaluate_mesh_sets(
+            gen_meshes,
+            gt_meshes,
+            batch_size=args.batch_size,
+            num_points=args.num_points,
+            device=device,
+        )
+        metrics.update({
+            'category_name': category_name,
+            'synset_id': synset_id,
+            'meshxl_prefix': prefix,
+            'dataset_dir': dataset_dir,
+            'generated_root': args.gen_root,
+            'generated_count': len(gen_meshes),
+            'gt_count': len(gt_meshes),
+            'gt_uids_preview': gt_uids[:5],
+            'generated_preview': gen_paths[:5],
+        })
+        results[synset_id] = metrics
+
+        per_category_json = os.path.join(args.gen_root, f'point_eval_{synset_id}.json')
+        with open(per_category_json, 'w') as handle:
+            json.dump(metrics, handle, indent=2)
+        print(f'[INFO] Saved metrics to {per_category_json}')
+        for key in sorted(metrics.keys()):
+            if isinstance(metrics[key], float):
+                print(f'  {key}: {metrics[key]:.8f}')
+
+    output_json = args.output_json or os.path.join(args.gen_root, 'point_eval_summary.json')
+    with open(output_json, 'w') as handle:
+        json.dump(results, handle, indent=2)
+    print(f'\n[INFO] Saved summary to {output_json}')
+
+
+if __name__ == '__main__':
+    main()
+

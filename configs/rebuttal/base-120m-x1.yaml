@@ -1,6 +1,6 @@
 # we recommend to read config_details.yaml first.
 data:
-  data_path: './downloaded_data/shapenet-02808440'
+  data_path: './downloaded_data/shapenet-03691459'
   valid_path: 'debug/valid'
   num_workers: 8
   do_dataset_normalize: True
@@ -39,10 +39,10 @@ train:
   global_batch_size: 48 # 4*7
   global_seed: 0
   output_dir: 'output'
-  exp_name: 'rebuttal-120m-x1-02808440' # <---- experiment name, set as you like
+  exp_name: 'rebuttal-120m-x1-03691459' # <---- experiment name, set as you like
   ckpt: null
   log_every: 100
-  ckpt_every: 5000 # 3000 
+  ckpt_every: 20000 # 3000 
   use_repa: False
   repa_idx: 3
   

@@ -42,7 +42,7 @@ train:
   exp_name: 'overfit-base-120m' # <---- experiment name, set as you like
   ckpt: null
   log_every: 100
-  ckpt_every: 3000 # 3000 
+  ckpt_every: 5000 # 5000 
   use_repa: False
   repa_idx: 3
   

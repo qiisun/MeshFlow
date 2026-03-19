@@ -15,7 +15,6 @@ from functools import partial
 from accelerate import Accelerator
 
 from models.equidit import DiT
-from models.dit import DiT_Llama
 from transport import create_transport
 from inference_dit import do_sample_simple
 from datasets.mesh_dataset import ObjaverseDataset, collate_fn
@@ -48,43 +47,24 @@ def setup_experiment(train_config, accelerator):
 
 def build_model_from_config(train_config):
     model_arch = train_config['model'].get('model_type', 'equidit')
+    if model_arch != 'equidit':
+        raise ValueError(f"Unsupported model_type: {model_arch}. Only 'equidit' is supported.")
 
-    if model_arch == 'dit_llama':
-        model = DiT_Llama(
-            in_channels=train_config['model'].get('in_channels', 9),
-            input_size=train_config['model'].get('input_size', 32),
-            patch_size=train_config['model'].get('patch_size', 1),
-            dim=train_config['model'].get('hidden_dim', 1024),
-            n_layers=train_config['model'].get('num_layers', 24),
-            n_heads=train_config['model'].get('num_heads', 16),
-            multiple_of=train_config['model'].get('multiple_of', 256),
-            ffn_dim_multiplier=train_config['model'].get('ffn_dim_multiplier', None),
-            norm_eps=train_config['model'].get('norm_eps', 1e-5),
-            class_dropout_prob=train_config['model'].get('class_dropout_prob', 0.1),
-            num_classes=train_config['model'].get('num_classes', 1000),
-            face_cond=train_config['model'].get('face_cond', False),
-            face_bin=train_config['model'].get('face_bin', 10),
-            max_length=train_config['model'].get('max_length', 800),
-            use_nerf_pe=train_config['model'].get('use_nerf_pe', train_config['model'].get('use_coord_encoding', True)),
-            nerf_num_freqs=train_config['model'].get('nerf_num_freqs', 12),
-            nerf_input_range=train_config['model'].get('nerf_input_range', 3.0),
-        )
-    else:
-        model = DiT(
-            hidden_dim=train_config['model']['hidden_dim'],
-            num_heads=train_config['model']['num_heads'],
-            max_length=train_config['model']['max_length'],
-            num_layers=train_config['model']['num_layers'],
-            gradient_checkpointing=train_config['model']['gradient_checkpointing'],
-            use_coord_encoding=train_config['model']['use_coord_encoding'],
-            version=train_config['model']['version'],
-            pe_freq=train_config['model']['pe_freq'],
-            mixed_precision=train_config['model']['mixed_precision'],
-            use_dit_like_pe=train_config['model']['use_dit_like_pe'],
-            face_cond=train_config['model']['face_cond'],
-            face_bin=train_config['model']['face_bin'],
-            use_rmsnorm=train_config['model'].get('use_rmsnorm', False),
-        )
+    model = DiT(
+        hidden_dim=train_config['model']['hidden_dim'],
+        num_heads=train_config['model']['num_heads'],
+        max_length=train_config['model']['max_length'],
+        num_layers=train_config['model']['num_layers'],
+        gradient_checkpointing=train_config['model']['gradient_checkpointing'],
+        use_coord_encoding=train_config['model']['use_coord_encoding'],
+        version=train_config['model']['version'],
+        pe_freq=train_config['model']['pe_freq'],
+        mixed_precision=train_config['model']['mixed_precision'],
+        use_dit_like_pe=train_config['model']['use_dit_like_pe'],
+        face_cond=train_config['model']['face_cond'],
+        face_bin=train_config['model']['face_bin'],
+        use_rmsnorm=train_config['model'].get('use_rmsnorm', False),
+    )
 
     return model, model_arch
 
@@ -287,16 +267,15 @@ def do_train(train_config, accelerator):
                 accelerator.wait_for_everyone()
 
                 if 'valid_path' in train_config['data']:
-                    report_chamfer = train_config.get('data', {}).get('overfit', False)
                     if accelerator.is_main_process:
                         logger.info(f"Start evaluating at step {train_steps}")
-                        val_loss, chamfer_loss = do_sample_simple(ema, 
-                                                    valid_loader, 
-                                                    device, 
-                                                    transport, 
-                                                    train_config, 
-                                                    accelerator, 
-                                                    train_steps, 
+                        val_loss, chamfer_loss, report_chamfer = do_sample_simple(ema,
+                                                    valid_loader,
+                                                    device,
+                                                    transport,
+                                                    train_config,
+                                                    accelerator,
+                                                    train_steps,
                                                     save_dir=experiment_dir)
                     if accelerator.is_main_process:
                         if report_chamfer:

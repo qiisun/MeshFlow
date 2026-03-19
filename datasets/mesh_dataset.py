@@ -2,10 +2,20 @@ import os
 import trimesh
 import numpy as np
 from utils.ot_utils import optimal_sum_numpy
-from models.equivae import float_to_index_np, index_to_float_np
 import torch
 from torch.utils.data import Dataset
 import tqdm
+
+def index_to_float_np(index, min_val=-0.5, max_val=0.5, num_bins=512):
+    norm = index.astype(np.float32) / (num_bins - 1)
+    value = norm * (max_val - min_val) + min_val
+    return value
+
+
+def float_to_index_np(value, min_val=-0.5, max_val=0.5, num_bins=512):
+    norm = (value - min_val) / (max_val - min_val)
+    norm = np.clip(norm, 0, 1)
+    return (norm * (num_bins - 1)).astype(int)
 
 
 def _highlight(msg: str):
@@ -38,15 +48,9 @@ def generate_custom_prior(num_samples, var_scale=0.05):
 
 
 def save_mesh(tokens: np.ndarray, path: str, clean: bool = True, num_bins=2048, max_val=1):
-    def simple_detokenize_mesh(tokens: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        coords = tokens.reshape(-1, 3).astype(np.float32)
-        vertices = coords
-
-        faces = np.arange(len(vertices)).reshape(-1, 3)
-
-        return vertices, faces
-
-    vertices, faces = simple_detokenize_mesh(tokens=tokens)
+    coords = tokens.reshape(-1, 3).astype(np.float32)
+    vertices = coords
+    faces = np.arange(len(vertices)).reshape(-1, 3)
     vertices = float_to_index_np(vertices, min_val=-max_val, max_val=max_val, num_bins=num_bins)
     vertices = index_to_float_np(vertices, min_val=-max_val, max_val=max_val, num_bins=num_bins)
 

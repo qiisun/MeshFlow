@@ -14,10 +14,8 @@ from accelerate import Accelerator
 import trimesh
 # local imports
 from transport import create_transport, Sampler
-from datasets.mesh_dataset import save_mesh
-from models.equivae import float_to_index_np, index_to_float_np
+from datasets.mesh_dataset import save_mesh, float_to_index_np, index_to_float_np
 from models.equidit import DiT
-from models.dit import DiT_Llama
 
 # Try to import Chamfer distance
 try:
@@ -26,6 +24,24 @@ try:
 except:
     CHAMFER_AVAILABLE = False
     print("Warning: Chamfer distance not available")
+
+
+def _should_compute_chamfer(train_config):
+    sample_cfg = train_config.get('sample', {})
+    if 'compute_chamfer' in sample_cfg:
+        return bool(sample_cfg['compute_chamfer'])
+
+    data_cfg = train_config.get('data', {})
+    train_cfg = train_config.get('train', {})
+    data_path = str(data_cfg.get('data_path', '')).lower()
+    exp_name = str(train_cfg.get('exp_name', '')).lower()
+
+    return bool(
+        data_cfg.get('overfit', False)
+        or 'overfit' in data_path
+        or 'ss_overfit' in data_path
+        or 'overfit' in exp_name
+    )
 
 def tokens_to_mesh(tokens: np.ndarray, num_bins=204800, max_val=1, std=0.3762):
     """
@@ -108,8 +124,10 @@ def do_sample_simple(
     else:
         raise NotImplementedError(f"Sampling mode {mode} is not supported.")
     
-    is_overfit_dataset = train_config.get('data', {}).get('overfit', False)
-    compute_chamfer = is_overfit_dataset and CHAMFER_AVAILABLE
+    compute_chamfer = _should_compute_chamfer(train_config) and CHAMFER_AVAILABLE
+
+    if _should_compute_chamfer(train_config) and (not CHAMFER_AVAILABLE):
+        print("Warning: Chamfer is requested but chamfer3D extension is unavailable, skipping Chamfer evaluation.")
 
     # Initialize Chamfer distance calculator only when needed
     if compute_chamfer:
@@ -204,12 +222,12 @@ def do_sample_simple(
 
     # average validation loss on evaluated batches
     if val_steps == 0:
-        return 0.0, 0.0
+        return 0.0, 0.0, compute_chamfer
     
     avg_val_loss = running_val_loss / val_steps
     avg_chamfer_loss = running_chamfer_loss / total_samples if compute_chamfer and total_samples > 0 else 0.0
     
-    return avg_val_loss, avg_chamfer_loss
+    return avg_val_loss, avg_chamfer_loss, compute_chamfer
 
 
 def do_sample(train_config, accelerator, ckpt_path=None, cfg_scale=None, model=None, vae=None, demo_sample_mode=False):
@@ -296,26 +314,8 @@ def do_sample(train_config, accelerator, ckpt_path=None, cfg_scale=None, model=N
 
 def build_model_from_config(train_config):
     model_arch = train_config['model'].get('model_type', 'equidit')
-    if model_arch == 'dit_llama':
-        return DiT_Llama(
-            in_channels=train_config['model'].get('in_channels', 9),
-            input_size=train_config['model'].get('input_size', 32),
-            patch_size=train_config['model'].get('patch_size', 1),
-            dim=train_config['model'].get('hidden_dim', 1024),
-            n_layers=train_config['model'].get('num_layers', 24),
-            n_heads=train_config['model'].get('num_heads', 16),
-            multiple_of=train_config['model'].get('multiple_of', 256),
-            ffn_dim_multiplier=train_config['model'].get('ffn_dim_multiplier', None),
-            norm_eps=train_config['model'].get('norm_eps', 1e-5),
-            class_dropout_prob=train_config['model'].get('class_dropout_prob', 0.1),
-            num_classes=train_config['model'].get('num_classes', 1000),
-            face_cond=train_config['model'].get('face_cond', False),
-            face_bin=train_config['model'].get('face_bin', 10),
-            max_length=train_config['model'].get('max_length', 800),
-            use_nerf_pe=train_config['model'].get('use_nerf_pe', train_config['model'].get('use_coord_encoding', True)),
-            nerf_num_freqs=train_config['model'].get('nerf_num_freqs', 12),
-            nerf_input_range=train_config['model'].get('nerf_input_range', 3.0),
-        )
+    if model_arch != 'equidit':
+        raise ValueError(f"Unsupported model_type: {model_arch}. Only 'equidit' is supported.")
 
     return DiT(
         hidden_dim=train_config['model']['hidden_dim'],

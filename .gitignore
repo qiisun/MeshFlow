@@ -9,3 +9,4 @@ tools/run_train*
 
 tools/update.py
 thirdparty/
+.vscode/

@@ -1,333 +1,276 @@
-support dataset
-- [x] single shape overfitting
-- [x] single shape, multiple meshes (dummy)
-- [x] shapenet
-- [ ] objaverse 
-- [x] sketchfab (305972/770)
+# MeshFlow: Mesh Generation with Equivariant Flow Matching
 
-support model
-- [x] MeshFlow: EquiDiT(no PE) / unordered meshes
-- [x] DiT+Rope  / ordered meshes
+This repository contains the training, sampling, and evaluation code for MeshFlow2.
+The current release focuses on the **EquiDiT mesh pipeline** (`model_type: equidit`) and keeps the workflow minimal and reproducible.
 
+---
 
-support generative modeling
-- [x] V-prediction + V-loss
-- [ ] x-prediction + V-loss
+## 1) What is included
 
-support coupling
-- [x] OT coupling
-- [x] independent coupling
+- Training entrypoint: `train_pixel.py`
+- Sampling entrypoint: `inference_dit.py` (with compatibility wrapper `inference.py`)
+- Standalone evaluation sampling script: `tools/infer_mesh_equidit.py`
+- Point-based metrics: `tools/point_evaluation.py`
+- Main train launcher: `tools/run_train.sh`
+- Configs: `configs/overfit`, `configs/rebuttal`, `configs/base_jit.yaml`
 
-Default Model Size = 500M (24 layers+16 heads+1024 hidden dims)
+---
 
-## Core workflow (clean)
+## 2) Environment setup
 
-Core entrypoints:
-- `train_pixel.py` (main training)
-- `inference_dit.py` (main sampling/inference)
-- `train_vae.py` / `eval_vae.py` (VAE)
+### 2.1 Create environment
 
-Compatibility wrappers kept for old commands:
-- `train_pixel_single.py` -> wraps `train_pixel.py`
-- `inference.py` -> wraps `inference_dit.py`
-
-
-## Quick start
-```bash
-bash tools/run_train.sh configs/overfit/base-500m.yaml
-bash tools/run_train.sh configs/overfit/base-120m.yaml
-bash tools/run_train.sh configs/overfit/base-120m-ot.yaml
-bash tools/run_train.sh configs/overfit/base-120m-x1.yaml
-bash tools/run_train.sh configs/rebuttal/base-120m-x1.yaml
-```
-----
-# MeshFlow
-MeshFlow based on lightingDiT.
-### TODO
-- [x] clean code
-- [x] simple train & test
-- [x] implement jit
-- [x] DDP for single-node multi-card training (test error in evaluation, fixed)
-- [ ] dynamic allocator
-- [x] prepare shapenet dataset (full)
-- [x] prepare objaverse dataset
-
-### Environment
 ```bash
 conda create -n mflow python=3.10 -y
 conda activate mflow
 
 pip install torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 --index-url https://download.pytorch.org/whl/cu124
-
-# flash attention
-pip install https://github.com/Dao-AILab/flash-attention/releases/download/v2.6.3/flash_attn-2.6.3+cu123torch2.4cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
-
 pip install -r requirements.txt
+```
 
-# if you encounter errors..
-conda install nvidia/label/main::cuda-nvcc
-conda install nvidia/label/main::cuda-toolkit
+### 2.2 (Optional but recommended) install chamfer extension
 
+Chamfer is used in validation/evaluation if available.
+
+```bash
 cd utils/chamfer3D
 python setup.py install
 cd ../..
 ```
-![](assets/chamfer.png)
 
-### dataset
+If this step is skipped, training still runs, but Chamfer-related metrics are skipped with a warning.
+
+---
+
+## 3) Data preparation
+
+Create data root:
+
 ```bash
-mkdir downloaded_data
+mkdir -p downloaded_data
 cd downloaded_data
-wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/dummy.tar.gz # or objaverse
+```
+
+### 3.1 Overfit benchmark set
+
+```bash
+wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/ss_overfit.tar.gz
+tar xf ss_overfit.tar.gz
+rm ss_overfit.tar.gz
+```
+
+### 3.2 ShapeNet splits (for category-level runs)
+
+```bash
+wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/shapenet-rebuttal.tar.gz
+tar xf shapenet-rebuttal.tar.gz
+rm shapenet-rebuttal.tar.gz
+```
+
+### 3.3 Sketchfab (optional)
+
+```bash
+wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/sketchfab.tar.gz
+tar xf sketchfab.tar.gz
+rm sketchfab.tar.gz
+```
+
+### 3.4 Full dataset download list (camera-ready completeness)
+
+If you want the full set used across different experiments (instead of only the quick-start subsets),
+you can run the commands below.
+
+```bash
+# dummy
+wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/dummy.tar.gz
 tar xf dummy.tar.gz
 rm dummy.tar.gz
 
-wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/ss_overfit.tar.gz # or objaverse
+# ss_overfit
+wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/ss_overfit.tar.gz
 tar xf ss_overfit.tar.gz
 rm ss_overfit.tar.gz
 
-
-wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/shapenet.tar.gz # or objaverse
+# shapenet
+wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/shapenet.tar.gz
 tar xf shapenet.tar.gz
 rm shapenet.tar.gz
 
-# sketchfab converted mesh dataset
+# sketchfab
 wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/sketchfab.tar.gz
 tar xf sketchfab.tar.gz
 rm sketchfab.tar.gz
 
-wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/objaverse_occ_v5_ids.tar.gz 
+# objaverse_occ_v5_ids + split (reorganized into downloaded_data/objaverse)
+wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/objaverse_occ_v5_ids.tar.gz
 wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/split.tar.gz
 tar xf objaverse_occ_v5_ids.tar.gz
-rm objaverse_occ_v5_ids.tar.gz
 tar xf split.tar.gz
+rm objaverse_occ_v5_ids.tar.gz
 rm split.tar.gz
-mkdir objaverse
-mv objaverse_occ_v5_ids objaverse
-mv split objaverse
+mkdir -p objaverse
+mv objaverse_occ_v5_ids objaverse/
+mv split objaverse/
 
+# extra shapenet assets
 wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/shapenet-cls.tar.gz
 tar xf shapenet-cls.tar.gz
 rm shapenet-cls.tar.gz
 
 wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/shapenet-rebuttal2.tar.gz
 tar xf shapenet-rebuttal2.tar.gz
+rm shapenet-rebuttal2.tar.gz
 
 wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/shapenet-rebuttal.tar.gz
 tar xf shapenet-rebuttal.tar.gz
+rm shapenet-rebuttal.tar.gz
+```
 
+Back to repo root:
+
+```bash
 cd ..
 ```
-Then you should modify the `configs/vae.yaml`.
 
-### Train MeshFlow-1
-```bash
-bash tools/run_train.sh configs/base.yaml
-```
+> Expected dataset format for this codebase: each dataset root contains `split/*.npz` and mesh npz files under `objaverse_occ_v5_ids/`.
 
-### Train Latent MeshFlow
-```bash
-# change the 
-bash tools/run_train_latent.sh  configs/latent.yaml
+---
 
-CUDA_VISIBLE_DEVICES=6, \
-accelerate launch eval_ldm.py \
-  --config configs/latent.yaml \
-  --ckpt output/ldm/checkpoints/0070000.pt \
-  --out_dir output/ldm \
-  --use_ema \
-  --batch_size 4
-```
+## 4) Quick start (recommended commands)
 
-### Train VAE & Evaluate VAE
-```
-# train auto-encoder
-bash tools/run_trainvae.sh configs/vae.yaml # regression loss
-bash tools/run_trainvae.sh configs/vae_cls.yaml # classification loss
-
-# eval auto-encoder (L1 loss)
-mkdir -p output/vae_rms_lamp/checkpoints
-cd output/vae_rms_lamp/checkpoints
-wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/vae_ckpts_1e-3/0036000.pt
-# wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/vae_ckpts/0130000.pt
-cd ../../..
-
-CUDA_VISIBLE_DEVICES=0, \
-accelerate launch eval_vae.py \
-  --config configs/vae_ch2_1e-2.yaml \
-  --checkpoint output/vae_rms_lamp_ch2/checkpoints/0093000.pt \
-  --output_dir output/vae_rms_lamp_ch2/eval_samples \
-  --num_save 40
-
-# noisy mesh is in output/vae_rms_lamp_ch2/eval_samples
-```
-
-### Run JIT on dummy
-```bash
-# training
-bash tools/run_train.sh configs/base_jit.yaml
-CUDA_VISIBLE_DEVICES=6, python train_pixel.py --config configs/base_jit.yaml
-```
-
-### Extract feature
-```bash
-cd third_party/PartField
-CUDA_VISIBLE_DEVICES=6, python partfield_inference.py -c configs/final/demo.yaml --opts continue_ckpt model/model_objaverse.ckpt result_name partfield_features/objaverse dataset.data_path ../../downloaded_data/dummy/objaverse_occ_v5_ids
-
-cd ../..
-python tools/merge_feature.py
-bash tools/run_train_421a.sh configs/base.yaml
-```
-
-### post-processing
-```bash
-
-python post_mesh.py \
-  --config configs/vae_fixed_500m.yaml \
-  --checkpoint ./output/vae_rms_fixed_002_mse_scale_500m/checkpoints/0021000.pt \
-  --input_folder output/post/002_noise_valid \
-  --output_dir output/post/check_test_500m
-
-python post_mesh.py \
-  --config configs/vae_fixed_500m_bench.yaml \
-  --checkpoint ./output/vae_rms_fixed_002_mse_scale_500m_02828884/checkpoints/0021000.pt \
-  --input_folder output/post/49_steps_bench \
-  --output_dir output/post/preprocess_49_steps_bench
-```
-
-### EquiDiT mesh inference (sample .obj)
-
-`tools/infer_mesh_equidit.py` is a standalone sampling script for mesh EquiDiT checkpoints.
-It loads model config + checkpoint, runs ODE sampling, saves generated meshes as `.obj`,
-can follow the test-set face count for each sample, saves GT test meshes, and automatically
-computes point-based metrics with [tools/point_evaluation.py](tools/point_evaluation.py).
-
-Recommended example: sample using test-set face counts and automatically evaluate against GT.
+### 4.1 Training
 
 ```bash
-# you must update the yaml before run inference
+# 500M baseline
+bash tools/run_train.sh configs/overfit/base-500m.yaml
+
+# 500M + OT + JIT x1
+bash tools/run_train.sh configs/overfit/base-500m-ot-x1.yaml
+
+# 120M baseline
+bash tools/run_train.sh configs/overfit/base-120m.yaml
+
+# 120M + OT + JIT x1
+bash tools/run_train.sh configs/overfit/base-120m-ot-x1.yaml
+
+# 120M + JIT x1
+bash tools/run_train.sh configs/overfit/base-120m-x1.yaml
+
+# Rebuttal config
+bash tools/run_train.sh configs/rebuttal/base-120m-x1.yaml
+```
+
+### 4.2 Sampling from a checkpoint
+
+```bash
+python inference_dit.py --config configs/overfit/base-120m-ot-x1.yaml
+```
+
+`ckpt_path` must be set in the config, or provided through your workflow.
+
+---
+
+## 5) Standalone inference + automatic point evaluation
+
+Use `tools/infer_mesh_equidit.py` for repeated sampling and summary metrics.
+
+```bash
 python tools/infer_mesh_equidit.py \
-  --config /data1/sunqi/MeshFlow2/configs/rebuttal/base-120m-x1.yaml \
+  --config configs/rebuttal/base-120m-x1.yaml \
   --num-samples 100 \
   --batch-size 16 \
   --use-test-faces
 ```
 
-This will automatically:
+Key behavior:
 
-- find the latest checkpoint under `output_dir/exp_name/checkpoints` from the config
-- create `output_dir/exp_name/infer_<ckpt_step>_eval`
-- run sampling 5 times by default
-- save generated meshes, GT meshes, and point metrics there
-- average point metrics across runs
+- Auto-resolves latest checkpoint under `train.output_dir/train.exp_name/checkpoints` (if `--ckpt` is omitted)
+- Saves meshes under `infer_<ckpt>_eval`
+- Runs multiple repeats (`--num-runs`, default `5`) and writes averaged summary
+- Saves run-level metrics to `point_metrics.json`
+- Saves aggregated metrics to `point_metrics_summary.json`
 
-If you really want fixed-length sampling, you can still use `--num-faces`, but for evaluation
-against the test set the recommended mode is `--use-test-faces`.
+Useful overrides:
 
-Notes:
+- `--ckpt`: explicit checkpoint path
+- `--out-dir`: explicit output path
+- `--cfg-scale`, `--num-steps`: sampling controls
+- `--test-data-path`: evaluate against another dataset root
 
-- If you run from project root, do not omit `tools/` in script path.
-- If `--ckpt` is omitted, the script automatically uses the latest `.pt` under `train.output_dir/train.exp_name/checkpoints`.
-- If `--out-dir` is omitted, the script automatically creates `train.output_dir/train.exp_name/infer_<ckpt_name>_eval`.
-- By default, the script runs `5` times and averages the point metrics across runs.
-- By default, `--use-test-faces` reads the validation/test split from `data.data_path` in the config.
-- `--test-data-path` is only an override if you want to evaluate on another dataset root.
-- `--use-test-faces` makes the script sample each mesh with its own GT validation/test face count instead of always using `800`.
-- The saved GT meshes come from that same validation/test split source, i.e. the same dataset root used by the script.
-- In `--use-test-faces` mode, the script also saves GT meshes to `--out-dir/gt_test_mesh`.
-- When `--num-runs > 1`, predictions are saved to `--out-dir/run_01`, `run_02`, ... and each run has its own `point_metrics.json`.
-- The averaged summary is saved to `--out-dir/point_metrics_summary.json`.
-- Metrics include `JSD`, `lgan_mmd-CD`, `lgan_cov-CD`, `lgan_mmd_smp-CD`, `1-NN-CD-acc`, `1-NN-CD-acc_t`, `1-NN-CD-acc_f`.
-- Optional args: `--cfg-scale`, `--num-steps`, `--max-val`, `--eval-batch-size`, `--eval-num-points`, `--num-runs`.
+---
 
-Optional override example:
+## 6) Current model support
 
-```bash
-python tools/infer_mesh_equidit.py \
-  --config /data1/sunqi/MeshFlow2/configs/rebuttal/base-120m-x1.yaml \
-  --ckpt /data1/sunqi/MeshFlow2/output/rebuttal-120m-x1-02808440/checkpoints/00255000.pt \
-  --out-dir /data1/sunqi/MeshFlow2/output/rebuttal-120m-x1-02808440/infer_00255000_eval \
-  --num-samples 100 \
-  --batch-size 16 \
-  --use-test-faces \
-  --test-data-path /data1/sunqi/MeshFlow2/downloaded_data/shapenet-02876657
+- Supported model type: `equidit`
+- Removed from this release: `dit_llama` path
+
+If a config sets another `model_type`, training/inference now raises a clear error.
+
+---
+
+## 7) Notes on Chamfer during training
+
+Validation Chamfer is computed when:
+
+1. Chamfer extension is installed (`utils/chamfer3D`), and
+2. The run is recognized as overfit-style evaluation (or explicitly enabled in config).
+
+You can explicitly control this in config:
+
+```yaml
+sample:
+  compute_chamfer: true
 ```
 
+---
 
+## 8) Reproducibility tips
 
-### MeshFlow + Denoiser
+- Keep `configs/*` under version control for each run.
+- Log exact commit hash together with checkpoint path.
+- Avoid editing `tools/run_train.sh` mid-experiment; clone and freeze a launcher per experiment if needed.
 
-1. download meshflow data
-```bash 
-mkdir -p downloaded_data/meshflow_data
-cd downloaded_data/meshflow_data
-wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/meshflow/49_steps_chair.zip
-wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/meshflow/49_steps_table.zip
-unzip 49_steps_chair.zip
-unzip 49_steps_table.zip
-cd ../..
+---
+
+## 9) Troubleshooting
+
+### Training exits early / launch issues
+
+- Check GPU IDs in `tools/run_train.sh` (`TARGET_GPU_ID`, `GPUS_PER_NODE`).
+- Ensure `accelerate` can see the same number of GPUs as configured.
+
+### No Chamfer shown in logs
+
+- Install `utils/chamfer3D` extension.
+- Ensure overfit evaluation is active or set `sample.compute_chamfer: true`.
+
+### Checkpoint not found in standalone inference
+
+- Verify `train.output_dir` + `train.exp_name` in config.
+- Or pass `--ckpt` manually.
+
+---
+
+## 10) Repository structure (minimal)
+
+```text
+train_pixel.py                # training
+inference_dit.py              # sampling
+inference.py                  # wrapper
+configs/
+  overfit/
+  rebuttal/
+  base_jit.yaml
+tools/
+  run_train.sh
+  infer_mesh_equidit.py
+  point_evaluation.py
+datasets/
+models/
+transport/
+utils/
 ```
 
-2. download checkpoint
-```bash 
-mkdir -p downloaded_data/denoiser_ckpt/chair_500m
-cd downloaded_data/denoiser_ckpt/chair_500m
-wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/denoiser/002_500M_chair/0030000.pt
-cd ../../..
+---
 
-mkdir -p downloaded_data/denoiser_ckpt/bench_500m
-cd downloaded_data/denoiser_ckpt/bench_500m
-wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/denoiser/002_500M_bench/0021000.pt
-cd ../../..
-
-mkdir -p downloaded_data/denoiser_ckpt/lamp_500m
-cd downloaded_data/denoiser_ckpt/lamp_500m
-wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/denoiser/002_500M_lamp/0009000.pt
-cd ../../..
-
-mkdir -p downloaded_data/denoiser_ckpt/table_500m
-cd downloaded_data/denoiser_ckpt/table_500m
-wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/denoiser/002_500M_table/0063000.pt
-cd ../../..
-
-```
-
-3. run denoiser
-
-```bash
-python post_mesh.py \
-  --config configs/vae_fixed_500m_chair.yaml \ #
-  --checkpoint ./downloaded_data/denoiser_ckpt/chair_500m/0030000.pt \
-  --input_folder downloaded_data/meshflow_data/49_steps_chair \
-  --output_dir output/post_process/chair
-
-cat=chair
-python post_mesh.py \
-  --config configs/vae_fixed_500m_${cat}.yaml \
-  --checkpoint ./downloaded_data/denoiser_ckpt/chair_500m/0030000.pt \
-  --input_folder ./downloaded_data/pretrained/chair/iter490000/eval_nsteps50_nsmp1000infer_cfg1.0 \
-  --output_dir output/post_process/chair_sota_1-2
-
-cat=table
-python post_mesh.py \
-  --config configs/vae_fixed_500m_${cat}.yaml \
-  --checkpoint ./downloaded_data/denoiser_ckpt/${cat}_500m/0063000.pt \
-  --input_folder ./downloaded_data/pretrained/table/iter490000/eval_nsteps200_nsmp1000infer_cfg6.0 \
-  # --output_dir output/post_process/table_2-1
-
-cat=lamp
-python post_mesh.py \
-  --config configs/vae_fixed_500m_${cat}.yaml \
-  --checkpoint ./downloaded_data/denoiser_ckpt/${cat}_500m/0009000.pt \
-  --input_folder ./downloaded_data/pretrained/lamp/iter346000/49steps_cfg1 \
-  --output_dir output/post_process/lamp_1
-
-
-cat=bench
-python post_mesh.py \
-  --config configs/vae_fixed_500m_${cat}.yaml \
-  --checkpoint ./downloaded_data/denoiser_ckpt/${cat}_500m/0021000.pt \
-  --input_folder ./downloaded_data/pretrained/bench/iter446000/eval_nsteps250_nsmp1000infer_cfg1.0 \
-  --output_dir output/post_process/bench_sota_1
-
-```
+If you use this codebase for your camera-ready artifact, we recommend keeping this README and the exact used configs in the release package as-is for reproducibility.

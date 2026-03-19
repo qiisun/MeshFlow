@@ -12,7 +12,7 @@ sys.path.append(".")
 from models.equidit import DiT
 from models.equivae import float_to_index_np, index_to_float_np
 from transport import create_transport, Sampler
-from datasets.mesh_dataset import save_mesh
+from utils.mesh_io import save_mesh
 from tools.point_evaluation import sample_point_cloud, compute_all_metrics, jsd_between_point_cloud_sets
 
 

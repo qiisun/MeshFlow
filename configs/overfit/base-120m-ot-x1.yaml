@@ -4,7 +4,7 @@ data:
   valid_path: 'debug/valid'
   num_workers: 8
   do_dataset_normalize: True
-  noise_sort: 'random'
+  noise_sort: 'ot'
   use_rot_aug: False  # <---- whether to use rotation augmentation when training
   use_scale_aug: False  # <---- whether to use scaling augmentation when training
   use_permute_aug: True  # <---- whether to use permutation augmentation when training
@@ -19,11 +19,11 @@ model:
   wo_shift: false
   # in_chans: 32
 
-  hidden_dim: 1024
-  num_heads: 16
+  hidden_dim: 768
+  num_heads: 12
   max_length: 800
   input_dim: 9
-  num_layers: 24
+  num_layers: 12
   gradient_checkpointing: False
   use_coord_encoding: True
   version: 3
@@ -31,15 +31,15 @@ model:
   mixed_precision:
   use_dit_like_pe: False
   face_cond: True
-  face_bin: 200
+  face_bin: 20
 
 # recommend to use default settings
 train:
   max_steps: 400000
-  global_batch_size: 16 # 4*4
+  global_batch_size: 16 # 4*7
   global_seed: 0
   output_dir: 'output'
-  exp_name: 'overfit-base-500m' # <---- experiment name, set as you like
+  exp_name: 'overfit-base-120m-ot' # <---- experiment name, set as you like
   ckpt: null
   log_every: 100
   ckpt_every: 5000 # 5000 
@@ -47,7 +47,7 @@ train:
   repa_idx: 3
   
 optimizer:
-  lr: 0.0002
+  lr: 0.0001
   beta2: 0.95
   
 # recommend to use default settings

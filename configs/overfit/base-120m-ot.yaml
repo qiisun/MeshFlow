@@ -1,10 +1,10 @@
 # we recommend to read config_details.yaml first.
 data:
-  data_path: './downloaded_data/shapenet-03691459'
+  data_path: './downloaded_data/ss_overfit'
   valid_path: 'debug/valid'
   num_workers: 8
   do_dataset_normalize: True
-  noise_sort: 'random'
+  noise_sort: 'ot'
   use_rot_aug: False  # <---- whether to use rotation augmentation when training
   use_scale_aug: False  # <---- whether to use scaling augmentation when training
   use_permute_aug: True  # <---- whether to use permutation augmentation when training
@@ -35,17 +35,17 @@ model:
 
 # recommend to use default settings
 train:
-  max_steps: 1000000
-  global_batch_size: 48 # 4*7
+  max_steps: 100000
+  global_batch_size: 16 # 4*7
   global_seed: 0
   output_dir: 'output'
-  exp_name: 'rebuttal-120m-x1-03691459' # <---- experiment name, set as you like
+  exp_name: 'overfit-base-120m-ot-v' # <---- experiment name, set as you like
   ckpt: null
   log_every: 100
-  ckpt_every: 20000 # 3000 
+  ckpt_every: 5000 # 5000 
   
 optimizer:
-  lr: 0.0005
+  lr: 0.0001
   beta2: 0.95
   
 # recommend to use default settings
@@ -57,7 +57,7 @@ transport:
   train_eps: null
   use_cosine_loss: false # should be false all the time
   use_lognorm: true
-  use_jit: true
+  use_jit: false
 
 # recommend to use default settings
 sample:

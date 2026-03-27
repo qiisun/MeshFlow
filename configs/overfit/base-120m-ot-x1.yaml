@@ -35,16 +35,14 @@ model:
 
 # recommend to use default settings
 train:
-  max_steps: 400000
+  max_steps: 100000 # 100k is enough for overfitting
   global_batch_size: 16 # 4*7
   global_seed: 0
   output_dir: 'output'
-  exp_name: 'overfit-base-120m-ot' # <---- experiment name, set as you like
+  exp_name: 'overfit-base-120m-ot-x1' # <---- experiment name, set as you like
   ckpt: null
   log_every: 100
   ckpt_every: 5000 # 5000 
-  use_repa: False
-  repa_idx: 3
   
 optimizer:
   lr: 0.0001
@@ -59,7 +57,7 @@ transport:
   train_eps: null
   use_cosine_loss: false # should be false all the time
   use_lognorm: true
-  use_jit: false
+  use_jit: true
 
 # recommend to use default settings
 sample:

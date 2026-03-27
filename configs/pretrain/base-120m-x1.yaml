@@ -1,6 +1,6 @@
 # we recommend to read config_details.yaml first.
 data:
-  data_path: './downloaded_data/shapenet-03691459'
+  data_path: './downloaded_data/sketchlab'
   valid_path: 'debug/valid'
   num_workers: 8
   do_dataset_normalize: True

@@ -79,13 +79,8 @@ def sample_point_cloud(mesh: trimesh.Trimesh, num_samples: int = 4096):
         # If mesh is too small, just return vertices repeated
         return np.tile(mesh.vertices[0], (num_samples, 1))
     
-    try:
-        points, _ = trimesh.sample.sample_surface(mesh, count=num_samples)
-        return points
-    except:
-        # Fallback: sample from vertices randomly
-        indices = np.random.choice(len(mesh.vertices), size=num_samples, replace=True)
-        return mesh.vertices[indices]
+    points, _ = trimesh.sample.sample_surface(mesh, count=num_samples)
+    return points
 
 @torch.no_grad()
 def do_sample_simple(

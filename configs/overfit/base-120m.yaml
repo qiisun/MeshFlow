@@ -43,8 +43,6 @@ train:
   ckpt: null
   log_every: 100
   ckpt_every: 5000 # 5000 
-  use_repa: False
-  repa_idx: 3
   
 optimizer:
   lr: 0.0005

@@ -35,7 +35,7 @@ model:
 
 # recommend to use default settings
 train:
-  max_steps: 400000
+  max_steps: 100000
   global_batch_size: 16 # 4*7
   global_seed: 0
   output_dir: 'output'
@@ -43,8 +43,6 @@ train:
   ckpt: null
   log_every: 100
   ckpt_every: 5000 # 5000 
-  use_repa: False
-  repa_idx: 3
   
 optimizer:
   lr: 0.0005

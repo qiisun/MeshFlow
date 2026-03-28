@@ -3,7 +3,6 @@ data:
   data_path: './downloaded_data/ss_overfit'
   valid_path: 'debug/valid'
   num_workers: 8
-  do_dataset_normalize: True
   noise_sort: 'ot'
   use_rot_aug: False  # <---- whether to use rotation augmentation when training
   use_scale_aug: False  # <---- whether to use scaling augmentation when training
@@ -12,17 +11,12 @@ data:
 # recommend to use default settings
 model:
   model_type: "equidit"
-  use_qknorm: false
-  use_swiglu: true
-  use_rope: true
   use_rmsnorm: true
-  wo_shift: false
   # in_chans: 32
 
   hidden_dim: 768
   num_heads: 12
   max_length: 800
-  input_dim: 9
   num_layers: 12
   gradient_checkpointing: False
   use_coord_encoding: True
@@ -37,10 +31,8 @@ model:
 train:
   max_steps: 100000
   global_batch_size: 16 # 4*7
-  global_seed: 0
   output_dir: 'output'
   exp_name: 'overfit-base-120m-ot-v' # <---- experiment name, set as you like
-  ckpt: null
   log_every: 100
   ckpt_every: 5000 # 5000 
   
@@ -66,12 +58,9 @@ sample:
   atol: 0.000001
   rtol: 0.0005
   reverse: false
-  likelihood: false
   num_sampling_steps: 50
-  cfg_scale: 10.0 
+  cfg_scale: 1.0 
   
   # recommend to use default settings
   per_proc_batch_size: 4
-  fid_num: 50000
-  cfg_interval_start: 0.11
   timestep_shift: 0.3

@@ -1,0 +1,71 @@
+ckpt_path: '/data1/sunqi/MeshFlow2/output/continue-x1-75k-to-76k/checkpoints/00760000.pt'
+
+data:
+  data_path: '/data1/sunqi/MeshFlow2/downloaded_data/ss_overfit'
+  num_workers: 4
+  do_dataset_normalize: true
+  noise_sort: 'random'
+  use_rot_aug: false
+  use_scale_aug: false
+  use_permute_aug: true
+
+model:
+  model_type: 'equidit'
+  use_qknorm: false
+  use_swiglu: true
+  use_rope: true
+  use_rmsnorm: true
+  wo_shift: false
+  hidden_dim: 768
+  num_heads: 12
+  max_length: 800
+  input_dim: 9
+  num_layers: 12
+  gradient_checkpointing: false
+  use_coord_encoding: true
+  version: 3
+  pe_freq: 20
+  mixed_precision:
+  use_dit_like_pe: false
+  face_cond: true
+  face_bin: 20
+
+train:
+  max_steps: 751000
+  global_batch_size: 16
+  global_seed: 0
+  output_dir: '/data1/sunqi/MeshFlow2/output'
+  exp_name: 'continue-x1-75k-to-76k'
+  ckpt: null
+  resume: true
+  log_every: 100
+  ckpt_every: 1000
+
+optimizer:
+  lr: 0.0005
+  beta2: 0.95
+
+transport:
+  path_type: Linear
+  prediction: velocity
+  loss_weight: null
+  sample_eps: null
+  train_eps: null
+  use_cosine_loss: false
+  use_lognorm: true
+  use_jit: true
+
+sample:
+  mode: ODE
+  sampling_method: euler
+  atol: 0.000001
+  rtol: 0.0005
+  reverse: false
+  likelihood: false
+  num_sampling_steps: 50
+  cfg_scale: 10.0
+  per_proc_batch_size: 4
+  num_samples: 8
+  fid_num: 50000
+  cfg_interval_start: 0.11
+  timestep_shift: 0.3

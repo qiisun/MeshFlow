@@ -1,0 +1,71 @@
+ckpt_path: '/data1/sunqi/MeshFlow2/output/smoke-min/checkpoints/00000001.pt'
+
+data:
+  data_path: '/data1/sunqi/MeshFlow2/downloaded_data/ss_overfit'
+  num_workers: 0
+  do_dataset_normalize: true
+  noise_sort: 'ot'
+  use_rot_aug: false
+  use_scale_aug: false
+  use_permute_aug: true
+
+model:
+  model_type: 'equidit'
+  use_qknorm: false
+  use_swiglu: true
+  use_rope: true
+  use_rmsnorm: true
+  wo_shift: false
+  hidden_dim: 256
+  num_heads: 8
+  max_length: 800
+  input_dim: 9
+  num_layers: 2
+  gradient_checkpointing: false
+  use_coord_encoding: true
+  version: 3
+  pe_freq: 20
+  mixed_precision:
+  use_dit_like_pe: false
+  face_cond: true
+  face_bin: 20
+
+train:
+  max_steps: 1
+  global_batch_size: 2
+  global_seed: 0
+  output_dir: '/data1/sunqi/MeshFlow2/output'
+  exp_name: 'smoke-min'
+  ckpt: null
+  resume: false
+  log_every: 1
+  ckpt_every: 1
+
+optimizer:
+  lr: 0.0001
+  beta2: 0.95
+
+transport:
+  path_type: Linear
+  prediction: velocity
+  loss_weight: null
+  sample_eps: null
+  train_eps: null
+  use_cosine_loss: false
+  use_lognorm: false
+  use_jit: false
+
+sample:
+  mode: ODE
+  sampling_method: euler
+  atol: 0.000001
+  rtol: 0.0005
+  reverse: false
+  likelihood: false
+  num_sampling_steps: 5
+  cfg_scale: 3.0
+  per_proc_batch_size: 2
+  num_samples: 8
+  fid_num: 100
+  cfg_interval_start: 0.11
+  timestep_shift: 0.3

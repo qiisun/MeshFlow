@@ -13,7 +13,7 @@ from tqdm import tqdm
 from accelerate import Accelerator
 import trimesh
 # local imports
-from transport import create_transport, Sampler
+from transport_simple import create_transport, Sampler
 from datasets.mesh_dataset import save_mesh, float_to_index_np, index_to_float_np
 from models.equidit import DiT
 

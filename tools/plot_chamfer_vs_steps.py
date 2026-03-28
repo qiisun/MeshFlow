@@ -13,7 +13,7 @@ from tqdm import tqdm
 from datasets.mesh_dataset import ObjaverseDataset, collate_fn
 from datasets.mesh_dataset import float_to_index_np, index_to_float_np
 from models.equidit import DiT
-from transport import Sampler, create_transport
+from transport_simple import Sampler, create_transport
 
 try:
     from utils.chamfer3D.dist_chamfer_3D import chamfer_3DDist

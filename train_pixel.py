@@ -180,7 +180,7 @@ def do_train(train_config, accelerator):
     if train_config['train']['resume']:
         checkpoint_files = glob(f"{checkpoint_dir}/*.pt")
         if checkpoint_files:
-            checkpoint_files.sort(key=lambda x: os.path.getsize(x))
+            checkpoint_files.sort(key=lambda x: int(os.path.basename(x).split('.')[0]))
             latest_checkpoint = checkpoint_files[-1]
             checkpoint = torch.load(latest_checkpoint, map_location=lambda storage, loc: storage)
             model.load_state_dict(checkpoint['model'])

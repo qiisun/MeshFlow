@@ -15,8 +15,8 @@ from functools import partial
 from accelerate import Accelerator
 
 from models.equidit import DiT
-from transport_simple import create_transport
-from inference_dit import do_sample_simple
+from flow_matching import create_transport
+from inference import do_sample_simple
 from datasets.mesh_dataset import ObjaverseDataset, collate_fn
 
 
@@ -180,7 +180,7 @@ def do_train(train_config, accelerator):
     if train_config['train']['resume']:
         checkpoint_files = glob(f"{checkpoint_dir}/*.pt")
         if checkpoint_files:
-            checkpoint_files.sort(key=lambda x: os.path.getsize(x))
+            checkpoint_files.sort(key=lambda x: int(os.path.basename(x).split('.')[0]))
             latest_checkpoint = checkpoint_files[-1]
             checkpoint = torch.load(latest_checkpoint, map_location=lambda storage, loc: storage)
             model.load_state_dict(checkpoint['model'])

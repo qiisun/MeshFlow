@@ -1,4 +1,4 @@
-# MeshFlow: Mesh Generation with Equivariant Flow Matching (SIGGRAPH 2026)
+# MeshFlow: Mesh Generation with Equivariant Flow Matching
 
 This repository is trimmed to a minimal training/inference/evaluation pipeline for unconditional mesh generation.
 
@@ -49,7 +49,7 @@ bash tools/run_train.sh configs/overfit/base-120m-x1.yaml
 python inference.py --config configs/overfit/base-120m-x1.yaml
 ```
 
-### 4) Generation Metrics Evaluation
+### 4) Generation Metrics Evaluation [TODO]
 
 ```bash
 python tools/point_evaluation.py --help

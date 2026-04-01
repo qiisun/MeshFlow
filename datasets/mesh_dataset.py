@@ -18,10 +18,6 @@ def float_to_index_np(value, min_val=-0.5, max_val=0.5, num_bins=512):
     return (norm * (num_bins - 1)).astype(int)
 
 
-def _highlight(msg: str):
-    print(f"\033[1;33m[HIGHLIGHT]\033[0m {msg}")
-
-
 def _green(msg: str):
     return f"\033[1;32m{msg}\033[0m"
 
@@ -182,19 +178,19 @@ class ObjaverseDataset(Dataset):
             self.std = 0.3762
 
         # one-time config logs for debugging training behavior
-        _highlight(f"{_cyan('noise_sort')} = {self.noise_sort} | {_cyan('OT')} = {_status(self.noise_sort == 'ot')}")
-        _highlight(f"{_cyan('dataset_normalize')} = {_status(self.do_dataset_normalize)} | std = {getattr(self, 'std', 'N/A')}")
-        _highlight(f"{_cyan('final token scale')} = coords * (1 / 0.5) = 1.9")
+        print(f"{_cyan('noise_sort')} = {self.noise_sort} | {_cyan('OT')} = {_status(self.noise_sort == 'ot')}")
+        print(f"{_cyan('dataset_normalize')} = {_status(self.do_dataset_normalize)} | std = {getattr(self, 'std', 'N/A')}")
+        print(f"{_cyan('final token scale')} = coords * (1 / 0.5) = 1.9")
 
         # shuffle & augmentation behavior
-        _highlight(f"{_cyan('raw mesh canonical sort (vertices/faces)')} = {_status(True)}")
-        _highlight(f"{_cyan('triangle/face shuffle')} = {_status(self.use_permut_aug)}")
-        _highlight(f"{_cyan('triangle vertex-order shuffle')} = {_status(self.use_permut_aug)}")
-        _highlight(f"{_cyan('rotation aug')} = {_status(self.use_rot_aug)}")
+        print(f"{_cyan('raw mesh canonical sort (vertices/faces)')} = {_status(True)}")
+        print(f"{_cyan('triangle/face shuffle')} = {_status(self.use_permut_aug)}")
+        print(f"{_cyan('triangle vertex-order shuffle')} = {_status(self.use_permut_aug)}")
+        print(f"{_cyan('rotation aug')} = {_status(self.use_rot_aug)}")
         if self.use_scale_aug:
-            _highlight(f"{_cyan('scale aug')} = {_status(True)} | range = [0.75, 1.25] per-axis")
+            print(f"{_cyan('scale aug')} = {_status(True)} | range = [0.75, 1.25] per-axis")
         else:
-            _highlight(f"{_cyan('scale aug')} = {_status(False)}")
+            print(f"{_cyan('scale aug')} = {_status(False)}")
             
     def __len__(self):
         return len(self.data)

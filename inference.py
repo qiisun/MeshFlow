@@ -1,11 +1,7 @@
-"""
-Sampling Scripts of LightningDiT.
-
-by Maple (Jingfeng Yao) from HUST-VL
-"""
-
 import os
 import argparse
+import importlib
+import importlib.util
 import yaml
 import torch
 import numpy as np
@@ -13,17 +9,23 @@ from tqdm import tqdm
 from accelerate import Accelerator
 import trimesh
 # local imports
-from transport_simple import create_transport, Sampler
-from datasets.mesh_dataset import save_mesh, float_to_index_np, index_to_float_np
+from flow_matching import create_transport
+from datasets.mesh_dataset import ObjaverseDataset, save_mesh, float_to_index_np, index_to_float_np
 from models.equidit import DiT
 
-# Try to import Chamfer distance
-try:
-    from utils.chamfer3D.dist_chamfer_3D import chamfer_3DDist
+# Optional Chamfer distance extension
+if importlib.util.find_spec("utils.chamfer3D.dist_chamfer_3D") is not None:
+    chamfer_3DDist = importlib.import_module("utils.chamfer3D.dist_chamfer_3D").chamfer_3DDist
     CHAMFER_AVAILABLE = True
-except:
+else:
     CHAMFER_AVAILABLE = False
     print("Warning: Chamfer distance not available")
+
+
+def _configure_nccl_env_for_consumer_rtx():
+    # Avoid Accelerate/NCCL initialization failure on RTX 40xx consumer GPUs.
+    os.environ.setdefault("NCCL_P2P_DISABLE", "1")
+    os.environ.setdefault("NCCL_IB_DISABLE", "1")
 
 
 def _should_compute_chamfer(train_config):
@@ -82,6 +84,70 @@ def sample_point_cloud(mesh: trimesh.Trimesh, num_samples: int = 4096):
     points, _ = trimesh.sample.sample_surface(mesh, count=num_samples)
     return points
 
+
+def _make_sample_fn(transport, sample_cfg, timestep_shift):
+    transport.method = sample_cfg['sampling_method']
+    transport.atol = sample_cfg['atol']
+    transport.rtol = sample_cfg['rtol']
+    num_steps = sample_cfg['num_sampling_steps']
+    reverse = sample_cfg.get('reverse', False)
+    t0, t1 = (1.0, 0.0) if reverse else (0.0, 1.0)
+
+    def sample_fn(z, model_fn, **model_kwargs):
+        wrapped_model = model_fn
+        if timestep_shift > 0:
+            def wrapped_model(x, t_scalar, **kwargs):
+                shifted_t = transport.path.compute_time_shift(t_scalar, timestep_shift=timestep_shift)
+                return model_fn(x, shifted_t, **kwargs)
+
+        return transport.sample(
+            z,
+            wrapped_model,
+            t0=t0,
+            t1=t1,
+            num_steps=num_steps,
+            model_kwargs=model_kwargs,
+        )
+
+    return sample_fn
+
+
+def _load_val_face_lengths(train_config):
+    data_cfg = train_config.get('data', {})
+    data_path = data_cfg.get('data_path', None)
+    valid_path = data_cfg.get('valid_path', None)
+    max_length = int(train_config['model'].get('max_length', 800))
+    candidate_paths = []
+    if valid_path:
+        candidate_paths.append(valid_path)
+    if data_path:
+        candidate_paths.append(data_path)
+
+    resolved_path = None
+    for p in candidate_paths:
+        if os.path.exists(os.path.join(p, 'split', 'test.npz')):
+            resolved_path = p
+            break
+
+    if resolved_path is None:
+        return []
+
+    val_dataset = ObjaverseDataset(
+        data_pth=resolved_path,
+        training=False,
+        noise_sort=data_cfg.get('noise_sort', 'random'),
+        use_custom_prior=False,
+        do_dataset_normalize=True,
+        use_rot_aug=False,
+        use_scale_aug=False,
+        use_permut_aug=False,
+        max_face_length=max_length,
+    )
+    lengths = [int(item['faces_num']) for item in val_dataset.data if 0 < int(item['faces_num']) <= max_length]
+    return lengths
+
+
+# validation during training
 @torch.no_grad()
 def do_sample_simple(
     model,
@@ -95,7 +161,6 @@ def do_sample_simple(
     cfg_scale=None,
     timestep_shift=None,
 ):
-    sampler = Sampler(transport)
     mode = train_config['sample'].get('mode', 'ODE')
     if timestep_shift is None:
         timestep_shift = train_config['sample'].get('timestep_shift', 0.0)
@@ -108,27 +173,21 @@ def do_sample_simple(
     os.makedirs(save_dir_mesh, exist_ok=True)
 
     if mode == "ODE":
-        sample_fn = sampler.sample_ode(
-            sampling_method=train_config['sample']['sampling_method'],
-            num_steps=train_config['sample']['num_sampling_steps'],
-            atol=train_config['sample']['atol'],
-            rtol=train_config['sample']['rtol'],
-            reverse=train_config['sample']['reverse'],
-            timestep_shift=timestep_shift,
-        )
+        sample_cfg = train_config['sample']
+        sample_fn = _make_sample_fn(transport, sample_cfg, timestep_shift)
     else:
         raise NotImplementedError(f"Sampling mode {mode} is not supported.")
     
-    compute_chamfer = _should_compute_chamfer(train_config) and CHAMFER_AVAILABLE
+    want_chamfer = _should_compute_chamfer(train_config)
+    compute_chamfer = want_chamfer and CHAMFER_AVAILABLE
 
-    if _should_compute_chamfer(train_config) and (not CHAMFER_AVAILABLE):
+    if want_chamfer and (not CHAMFER_AVAILABLE):
         print("Warning: Chamfer is requested but chamfer3D extension is unavailable, skipping Chamfer evaluation.")
 
     # Initialize Chamfer distance calculator only when needed
     if compute_chamfer:
         chamfer_dist = chamfer_3DDist()
     
-    images = []
     running_val_loss = 0.0
     running_chamfer_loss = 0.0
     val_steps = 0    
@@ -163,7 +222,6 @@ def do_sample_simple(
             # y: [bs]
             # mask: [bs, N], no repeat
             samples = sample_fn(z, model_fn, **model_kwargs)[-1]
-        images.append(samples)
         # save meshes (only conditional half)
         bs = x0.shape[0]
         cond_samples = samples[:bs]
@@ -176,41 +234,34 @@ def do_sample_simple(
 
             # Chamfer distance using mesh-based point sampling
             if compute_chamfer:
-                try:
-                    # Convert tokens to mesh and sample point clouds
-                    pred_tokens = cond_samples[b][valid_mask].cpu().numpy()  # [N_valid, feature_dim]
-                    gt_tokens = x1[b][valid_mask].cpu().numpy()  # [N_valid, feature_dim]
-                    
-                    # Use std=0.3762 (from dataset) and max_val=1/0.3762 (dequantization range)
-                    MAX_VAL = 1.0 / 0.3762  # = 2.653
-                    STD = 0.3762
-                    
-                    pred_mesh = tokens_to_mesh(pred_tokens, num_bins=2048, max_val=MAX_VAL, std=STD)
-                    gt_mesh = tokens_to_mesh(gt_tokens, num_bins=2048, max_val=MAX_VAL, std=STD)
-                    
-                    # Sample 4096 points from each mesh
-                    pred_pc = sample_point_cloud(pred_mesh, num_samples=4096)  # [4096, 3]
-                    gt_pc = sample_point_cloud(gt_mesh, num_samples=4096)  # [4096, 3]
-                    
-                    # Convert to torch tensors
-                    pred_pc_torch = torch.from_numpy(pred_pc).unsqueeze(0).float().to(device)  # [1, 4096, 3]
-                    gt_pc_torch = torch.from_numpy(gt_pc).unsqueeze(0).float().to(device)  # [1, 4096, 3]
-                    
-                    # Calculate Chamfer distance
-                    dist1, dist2, _, _ = chamfer_dist(pred_pc_torch, gt_pc_torch)
-                    chamfer = (torch.mean(dist1) + torch.mean(dist2)).item()
-                    running_chamfer_loss += chamfer
-                except Exception as e:
-                    # If Chamfer calculation fails, use vertex-based distance
-                    pred_vertices_torch = pred_vertices.unsqueeze(0)  # [1, N_valid, 3]
-                    gt_vertices_torch = gt_vertices.unsqueeze(0)  # [1, N_valid, 3]
-                    dist1, dist2, _, _ = chamfer_dist(pred_vertices_torch, gt_vertices_torch)
-                    chamfer = (torch.mean(dist1) + torch.mean(dist2)).item()
-                    running_chamfer_loss += chamfer
+                # Convert tokens to mesh and sample point clouds
+                pred_tokens = cond_samples[b][valid_mask].cpu().numpy()  # [N_valid, feature_dim]
+                gt_tokens = x1[b][valid_mask].cpu().numpy()  # [N_valid, feature_dim]
+                
+                # Use std=0.3762 (from dataset) and max_val=1/0.3762 (dequantization range)
+                MAX_VAL = 1.0 / 0.3762  # = 2.653
+                STD = 0.3762
+                
+                pred_mesh = tokens_to_mesh(pred_tokens, num_bins=2048, max_val=MAX_VAL, std=STD)
+                gt_mesh = tokens_to_mesh(gt_tokens, num_bins=2048, max_val=MAX_VAL, std=STD)
+                
+                # Sample 4096 points from each mesh
+                pred_pc = sample_point_cloud(pred_mesh, num_samples=4096)  # [4096, 3]
+                gt_pc = sample_point_cloud(gt_mesh, num_samples=4096)  # [4096, 3]
+                
+                # Convert to torch tensors
+                pred_pc_torch = torch.from_numpy(pred_pc).unsqueeze(0).float().to(device)  # [1, 4096, 3]
+                gt_pc_torch = torch.from_numpy(gt_pc).unsqueeze(0).float().to(device)  # [1, 4096, 3]
+                
+                # Calculate Chamfer distance
+                dist1, dist2, _, _ = chamfer_dist(pred_pc_torch, gt_pc_torch)
+                chamfer = (torch.mean(dist1) + torch.mean(dist2)).item()
+                running_chamfer_loss += chamfer
 
                 total_samples += 1
             # Use consistent max_val for saving mesh (1/0.3762)
-            save_mesh(cond_samples[b].cpu().numpy(), f'{save_dir_mesh}/{i:03d}_{b:02d}.obj', max_val=1/0.3762)
+            valid_tokens = cond_samples[b][valid_mask]
+            save_mesh(valid_tokens.cpu().numpy(), f'{save_dir_mesh}/{i:03d}_{b:02d}.obj', max_val=1/0.3762)
     
     if was_training:
         model.train()
@@ -224,53 +275,35 @@ def do_sample_simple(
     
     return avg_val_loss, avg_chamfer_loss, compute_chamfer
 
-
+# standalone inference for saving meshes (for generative metrics calculation, visualization, etc.)
+@torch.no_grad()
 def do_sample(train_config, accelerator, ckpt_path=None, cfg_scale=None, model=None, vae=None, demo_sample_mode=False):
     """Run mesh sampling and save .obj files."""
     del vae
 
     device = accelerator.device
-    if cfg_scale is None:
-        cfg_scale = train_config['sample'].get('cfg_scale', 1.0)
+    cfg_scale = train_config['sample'].get('cfg_scale', 1.0)
     timestep_shift = train_config['sample'].get('timestep_shift', 0.0)
 
-    if ckpt_path is None:
-        ckpt_path = train_config.get('ckpt_path', None)
+    ckpt_path = train_config.get('ckpt_path', None)
     if ckpt_path is None:
         raise ValueError("ckpt_path must be provided either by argument or config['ckpt_path']")
 
-    if model is None:
-        model = build_model_from_config(train_config)
+    model = build_model_from_config(train_config)
 
     checkpoint = torch.load(ckpt_path, map_location='cpu')
-    if 'ema' in checkpoint:
-        model.load_state_dict(checkpoint['ema'])
-    elif 'model' in checkpoint:
-        model.load_state_dict(checkpoint['model'])
-    else:
-        model.load_state_dict(checkpoint)
+    model.load_state_dict(checkpoint['ema'])
     model = model.to(device)
     model.eval()
 
     transport = create_transport(
         train_config['transport']['path_type'],
         train_config['transport']['prediction'],
-        train_config['transport']['loss_weight'],
-        train_config['transport']['train_eps'],
-        train_config['transport']['sample_eps'],
-        use_cosine_loss=train_config['transport'].get('use_cosine_loss', False),
         use_lognorm=train_config['transport'].get('use_lognorm', False),
         use_jit=train_config['transport'].get('use_jit', False),
     )
-    sampler = Sampler(transport)
-    sample_fn = sampler.sample_ode(
-        sampling_method=train_config['sample']['sampling_method'],
-        num_steps=train_config['sample']['num_sampling_steps'],
-        atol=train_config['sample']['atol'],
-        rtol=train_config['sample']['rtol'],
-        reverse=train_config['sample']['reverse'],
-        timestep_shift=timestep_shift,
-    )
+    sample_cfg = train_config['sample']
+    sample_fn = _make_sample_fn(transport, sample_cfg, timestep_shift)
 
     step_name = os.path.splitext(os.path.basename(ckpt_path))[0]
     sample_folder_dir = os.path.join(
@@ -283,9 +316,27 @@ def do_sample(train_config, accelerator, ckpt_path=None, cfg_scale=None, model=N
     num_samples = train_config['sample'].get('num_samples', 100)
     if demo_sample_mode:
         num_samples = min(num_samples, 8)
-    batch_size = train_config['sample'].get('per_proc_batch_size', 4)
+    # Prefer dedicated inference batch size and keep default conservative.
+    batch_size = train_config['sample'].get(
+        'infer_batch_size',
+        train_config['sample'].get('per_proc_batch_size', 1)
+    )
+    if demo_sample_mode:
+        batch_size = min(batch_size, 2)
     max_length = train_config['model'].get('max_length', 800)
     model_unwrap = accelerator.unwrap_model(model)
+
+    val_face_lengths = _load_val_face_lengths(train_config)
+    if len(val_face_lengths) == 0:
+        raise ValueError(
+            "Validation face lengths unavailable. Please ensure data.valid_path or data.data_path contains split/test.npz"
+        )
+    print(
+        f"[INFO] Using validation face lengths: count={len(val_face_lengths)}, "
+        f"min={min(val_face_lengths)}, max={max(val_face_lengths)}, "
+        f"mean={float(np.mean(val_face_lengths)):.2f}"
+    )
+    length_ptr = 0
 
     saved = 0
     pbar = tqdm(total=num_samples, desc='Sampling meshes')
@@ -293,14 +344,22 @@ def do_sample(train_config, accelerator, ckpt_path=None, cfg_scale=None, model=N
         cur_bs = min(batch_size, num_samples - saved)
         z = torch.randn(cur_bs, max_length, 9, device=device)
         z_in = torch.cat([z, z], dim=0)
-        y = torch.full((cur_bs,), max_length, device=device, dtype=torch.long)
-        mask = torch.ones((cur_bs, max_length), device=device, dtype=torch.bool)
+
+        idx = (np.arange(cur_bs) + length_ptr) % len(val_face_lengths)
+        y_np = np.asarray(val_face_lengths, dtype=np.int64)[idx]
+        y = torch.from_numpy(y_np).to(device=device, dtype=torch.long)
+        mask = torch.arange(max_length, device=device).unsqueeze(0) < y.unsqueeze(1)
+        length_ptr += cur_bs
+
         samples = sample_fn(z_in, model_unwrap.forward_with_cfg, y=y, cfg_scale=cfg_scale, mask=mask)[-1]
+
         cond_samples = samples[:cur_bs]
 
-        for item in cond_samples:
+        for b, item in enumerate(cond_samples):
             save_path = os.path.join(sample_folder_dir, f"{saved:06d}.obj")
-            save_mesh(item.detach().cpu().numpy(), save_path, max_val=1 / 0.3762)
+            valid_len = int(y[b].item())
+            valid_tokens = item[:valid_len]
+            save_mesh(valid_tokens.detach().cpu().numpy(), save_path, max_val=1 / 0.3762)
             saved += 1
             pbar.update(1)
 
@@ -338,6 +397,7 @@ if __name__ == "__main__":
     parser.add_argument('--config', type=str, default='configs/base_jit.yaml')
     parser.add_argument('--demo', action='store_true', default=False)
     args = parser.parse_args()
+    _configure_nccl_env_for_consumer_rtx()
     accelerator = Accelerator()
     train_config = load_config(args.config)
 

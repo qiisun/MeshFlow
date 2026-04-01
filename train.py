@@ -149,10 +149,6 @@ def do_train(train_config, accelerator):
     transport = create_transport(
         train_config['transport']['path_type'],
         train_config['transport']['prediction'],
-        train_config['transport']['loss_weight'],
-        train_config['transport']['train_eps'],
-        train_config['transport']['sample_eps'],
-        use_cosine_loss=train_config['transport'].get('use_cosine_loss', False),
         use_lognorm=train_config['transport'].get('use_lognorm', False),
         use_jit=train_config['transport'].get('use_jit', False),
     )
@@ -160,7 +156,6 @@ def do_train(train_config, accelerator):
         logger.info(f"LightningDiT Parameters: {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M")
         logger.info(f"Optimizer: AdamW, lr={train_config['optimizer']['lr']}, beta2={train_config['optimizer']['beta2']}")
         logger.info(f'Use lognorm sampling: {train_config["transport"]["use_lognorm"]}')
-        logger.info(f'Use cosine loss: {train_config["transport"]["use_cosine_loss"]}')
     opt = torch.optim.AdamW(model.parameters(), lr=train_config['optimizer']['lr'], weight_decay=0, betas=(0.9, train_config['optimizer']['beta2']))
 
     loader, valid_loader, train_size, valid_size, batch_size_per_gpu = build_dataloaders(train_config, accelerator)
@@ -217,12 +212,7 @@ def do_train(train_config, accelerator):
             model_kwargs = dict(y=y, mask=mask)
                 
             loss_dict = transport.training_losses(model, x1, x0, model_kwargs)
-            
-            if 'cos_loss' in loss_dict:
-                mse_loss = loss_dict["loss"].mean()
-                loss = loss_dict["cos_loss"].mean() + mse_loss
-            else:
-                loss = loss_dict["loss"].mean()
+            loss = loss_dict["loss"].mean()
                 
             opt.zero_grad()
             accelerator.backward(loss)
@@ -232,10 +222,7 @@ def do_train(train_config, accelerator):
             opt.step()
             update_ema(ema, accelerator.unwrap_model(model), decay=0.9999)
 
-            if 'cos_loss' in loss_dict:
-                running_loss += mse_loss.item()
-            else:
-                running_loss += loss.item()
+            running_loss += loss.item()
             log_steps += 1
             train_steps += 1
             if train_steps % train_config['train']['log_every'] == 0:

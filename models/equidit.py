@@ -313,23 +313,28 @@ class DiT(nn.Module):
         # return: [B, N, C], updated hidden states
         B, N, _ = x.shape
         
-        if self.version > 1:
-            _, x = self.x_embedder(x)
-            x = x.view(B, N*3, -1) # [B, 3*N, C]
-        else:
-            x = self.x_embedder(x) # [B, N, C]
+        _, x = self.x_embedder(x)
+        x = x.view(B, N*3, -1) # [B, 3*N, C]
             
         # positional encoding
         if self.use_dit_like_pe: 
-            if self.version > 1:
-                x = x + self.pos_embed[:, :N*3, :]
-            else:
-                x = x + self.pos_embed[:, :N, :]
+            x = x + self.pos_embed[:, :N*3, :]
+
+        def _as_batch_vector(v):
+            # Accept [B] / [B, ...] and always return [B].
+            return v if v.dim() == 1 else v.reshape(B, -1)[:, 0]
+
+        def _as_batch_hidden(v):
+            # Accept [B, C] / [B, ..., C] and always return [B, C].
+            return v if v.dim() == 2 else v.reshape(B, -1, v.shape[-1]).mean(dim=1)
 
         # only timestep encoding
-        t = self.t_embedder(t)
+        t = self.t_embedder(_as_batch_vector(t))
+        t = _as_batch_hidden(t)
+
         if self.face_cond:
-            y = self.y_embedder(y // self.face_bin, self.training)
+            y = self.y_embedder(_as_batch_vector(y) // self.face_bin, self.training)
+            y = _as_batch_hidden(y)
             c = t + y
         else:
             c = t 
@@ -339,10 +344,7 @@ class DiT(nn.Module):
         
         # project out            
         x = self.final_layer(x, c) # v2: [B, N*3, 3]
-        
-        if self.version > 1:
-            x = x.view(B, N, 9)
-        return x
+        return x.view(B, N, 9)
     
     def forward_with_cfg(self, x, t, y, mask=None, cfg_scale=1.0):
         """

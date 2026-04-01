@@ -19,7 +19,7 @@ accelerate launch \
     --num_machines $NNODES \
     --mixed_precision $PRECISION \
     --gpu_ids $TARGET_GPU_ID \
-    train_pixel.py \
+    train.py \
     --config $CONFIG_PATH
 
 

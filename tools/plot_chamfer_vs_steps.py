@@ -263,10 +263,6 @@ def main():
     transport = create_transport(
         train_config['transport']['path_type'],
         train_config['transport']['prediction'],
-        train_config['transport']['loss_weight'],
-        train_config['transport']['train_eps'],
-        train_config['transport']['sample_eps'],
-        use_cosine_loss=train_config['transport'].get('use_cosine_loss', False),
         use_lognorm=train_config['transport'].get('use_lognorm', False),
         use_jit=train_config['transport'].get('use_jit', False),
     )

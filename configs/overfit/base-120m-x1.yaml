@@ -1,4 +1,5 @@
 # we recommend to read config_details.yaml first.
+ckpt_path: output/overfit-base-120m-x1/checkpoints/00075000.pt
 data:
   data_path: './downloaded_data/ss_overfit'
   valid_path: 'debug/valid'
@@ -32,7 +33,7 @@ train:
   max_steps: 100000
   global_batch_size: 16 # 4*7
   output_dir: 'output'
-  exp_name: 'overfit-base-120m-x1' # <---- experiment name, set as you like
+  exp_name: 'overfit-base-120m-x1-simplified' # <---- experiment name, set as you like
   log_every: 100
   ckpt_every: 5000 # 5000 
   
@@ -44,10 +45,6 @@ optimizer:
 transport:
   path_type: Linear
   prediction: velocity
-  loss_weight: null
-  sample_eps: null
-  train_eps: null
-  use_cosine_loss: false # should be false all the time
   use_lognorm: true
   use_jit: true
 
@@ -63,4 +60,4 @@ sample:
   
   # recommend to use default settings
   per_proc_batch_size: 4
-  timestep_shift: 0.3
+  timestep_shift: 0

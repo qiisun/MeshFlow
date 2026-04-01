@@ -40,10 +40,6 @@ optimizer:
 transport:
   path_type: Linear
   prediction: velocity
-  loss_weight: null
-  sample_eps: null
-  train_eps: null
-  use_cosine_loss: false
   use_lognorm: false
   use_jit: false
 
@@ -57,4 +53,4 @@ sample:
   cfg_scale: 1.0
   per_proc_batch_size: 2
   num_samples: 8
-  timestep_shift: 0.3
+  timestep_shift: 0

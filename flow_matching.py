@@ -6,7 +6,6 @@ Linear interpolation path + Velocity prediction + L2 loss + ODE sampling
 import torch as th
 import numpy as np
 from torchdiffeq import odeint
-from functools import partial
 
 # ============================================================================
 # 1. Interpolation Path: Linear Coupling Plan (x_t = t*x1 + (1-t)*x0)
@@ -59,18 +58,62 @@ class LinearPath:
 def mean_flat(tensor, mask=None):
     """Average over all axes except batch"""
     if mask is not None:
-        tensor = tensor * mask
-        return tensor.sum() / mask.sum().clamp(min=1)
+        mask = mask.to(dtype=tensor.dtype)
+        while mask.dim() < tensor.dim():
+            mask = mask.unsqueeze(-1)
+        masked = tensor * mask
+        denom = mask.expand_as(tensor).sum().clamp(min=1)
+        return masked.sum() / denom
     return tensor.mean()
 
 
 class FlowMatching:
     """Flow Matching trainer with velocity prediction"""
     
-    def __init__(self, train_eps=0, sample_eps=0):
+    def __init__(
+        self,
+        train_eps=0,
+        sample_eps=0,
+        use_lognorm=False,
+        lognorm_mean=0.0,
+        lognorm_std=1.0,
+        use_jit=False,
+        prediction='velocity',
+    ):
         self.train_eps = train_eps
         self.sample_eps = sample_eps
+        self.use_lognorm = use_lognorm
+        self.lognorm_mean = lognorm_mean
+        self.lognorm_std = lognorm_std
+        self.use_jit = use_jit
+        self.prediction = prediction
         self.path = LinearPath()
+
+    def _eps(self, value, default=1e-5):
+        if value is None:
+            return default
+        if isinstance(value, (float, int)) and value > 0:
+            return float(value)
+        return default
+
+    def _is_x1_prediction(self):
+        if self.use_jit:
+            return True
+        pred = str(self.prediction).lower()
+        return pred in {'x1', 'data', 'endpoint', 'x_start'}
+
+    def _to_velocity(self, model_out, x_t, t, eps):
+        if not self._is_x1_prediction():
+            return model_out
+        denom = (1 - t).clamp_min(eps)
+        return (model_out - x_t) / denom
+
+    def sample_timesteps(self, bs, device):
+        if self.use_lognorm:
+            # SD3-style logit-normal-like sampling: t = sigmoid(N(mean, std)).
+            z = th.randn((bs,), device=device) * self.lognorm_std + self.lognorm_mean
+            return th.sigmoid(z)
+        return th.rand((bs,), device=device)
     
     def training_losses(self, model, x1, x0, model_kwargs=None):
         """
@@ -89,14 +132,15 @@ class FlowMatching:
         mask = model_kwargs.get('mask', None)
         bs = x1.shape[0]
         
-        # Sample random time points uniformly from [0, 1]
-        t = th.rand((bs,), device=x1.device)
+        # Sample random time points from configured schedule in [0, 1].
+        t = self.sample_timesteps(bs, x1.device)
         
         # Compute x_t and target velocity u_t
         t_plan, xt, ut = self.path.plan(t, x0, x1)
         
         # Model predicts velocity
-        v_pred = model(xt, t_plan, **model_kwargs)
+        model_out = model(xt, t_plan, **model_kwargs)
+        v_pred = self._to_velocity(model_out, xt, t_plan, eps=self._eps(self.train_eps))
         
         # L2 loss on velocity prediction
         loss = mean_flat(th.square(v_pred - ut), mask)
@@ -112,7 +156,9 @@ class FlowMatching:
         def ode_func(t, x):
             """ODE integrand: dx/dt = v(x, t)"""
             t_scalar = th.full((x.size(0),), float(t), device=device, dtype=x.dtype)
-            return model(x, t_scalar, **model_kwargs)
+            model_out = model(x, t_scalar, **model_kwargs)
+            t_broadcast = expand_t_like_x(t_scalar, x)
+            return self._to_velocity(model_out, x, t_broadcast, eps=self._eps(self.sample_eps))
         
         # Integrate ODE
         trajectory = odeint(
@@ -131,11 +177,11 @@ class FlowMatching:
 # 4. Convenience Factory Functions
 # ============================================================================
 
-def create_flow_matching(*args, train_eps=0, sample_eps=0, **kwargs):
+def create_transport(*args, train_eps=0, sample_eps=0, **kwargs):
     """Create a FlowMatching object with default settings.
 
     Legacy transport configs may pass extra kwargs (e.g. path_type,
-    prediction, loss_weight, use_cosine_loss). They are intentionally
+    prediction, loss_weight). They are intentionally
     ignored here to keep drop-in compatibility.
     """
     # Legacy call pattern from old transport:
@@ -146,6 +192,19 @@ def create_flow_matching(*args, train_eps=0, sample_eps=0, **kwargs):
     elif len(args) == 4:
         train_eps = args[3]
 
-    _ = kwargs
-    return FlowMatching(train_eps=train_eps, sample_eps=sample_eps)
+    prediction = args[1] if len(args) >= 2 else kwargs.get('prediction', 'velocity')
 
+    use_lognorm = kwargs.get('use_lognorm', False)
+    lognorm_mean = kwargs.get('lognorm_mean', 0.0)
+    lognorm_std = kwargs.get('lognorm_std', 1.0)
+    use_jit = kwargs.get('use_jit', False)
+
+    return FlowMatching(
+        train_eps=train_eps,
+        sample_eps=sample_eps,
+        use_lognorm=use_lognorm,
+        lognorm_mean=lognorm_mean,
+        lognorm_std=lognorm_std,
+        use_jit=use_jit,
+        prediction=prediction,
+    )

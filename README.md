@@ -1,17 +1,16 @@
-# MeshFlow2 (Clean Camera-Ready)
+# MeshFlow: Mesh Generation with Equivariant Flow Matching (SIGGRAPH 2026)
 
-This repository is trimmed to a minimal training/inference/evaluation pipeline.
+This repository is trimmed to a minimal training/inference/evaluation pipeline for unconditional mesh generation.
 
 ## Kept Entry Points
 
-- Training: `train_pixel.py`
-- Inference: `inference_dit.py`
+- Training: `train.py`
+- Inference: `inference.py`
 - Train launcher: `tools/run_train.sh`
-- Chamfer curve eval: `tools/plot_chamfer_vs_steps.py`
-- Point metrics: `tools/point_evaluation.py`
-- Transport core: `transport_simple.py`
+- Chamfer curve eval (for overfitting experiments): `tools/plot_chamfer_vs_steps.py`
+- Generation metrics (for ShapeNet category, e.g. 1-NNA): `tools/point_evaluation.py`
+- flow matching core: `flow_matching.py`
 
-`inference.py` has been merged into `inference_dit.py` and removed.
 
 ## Minimal Config Set
 
@@ -41,16 +40,16 @@ cd ../..
 ### 2) Train
 
 ```bash
-bash tools/run_train.sh configs/overfit/base-120m-ot.yaml
+bash tools/run_train.sh configs/overfit/base-120m-x1.yaml
 ```
 
 ### 3) Inference
 
 ```bash
-python inference_dit.py --config configs/overfit/base-120m-ot.yaml
+python inference.py --config configs/overfit/base-120m-x1.yaml
 ```
 
-### 4) Point Evaluation
+### 4) Generation Metrics Evaluation
 
 ```bash
 python tools/point_evaluation.py --help

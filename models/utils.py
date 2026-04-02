@@ -61,7 +61,6 @@ class SwiGLUFFN(nn.Module):
         self.w12 = nn.Linear(in_features, 2 * hidden_features, bias=bias)
         self.w3 = nn.Linear(hidden_features, out_features, bias=bias)
 
-    @torch.compile
     def forward(self, x: Tensor) -> Tensor:
         x12 = self.w12(x)
         x1, x2 = x12.chunk(2, dim=-1)

@@ -2,7 +2,7 @@
 data:
   data_path: './downloaded_data/ss_overfit'
   valid_path: 'debug/valid'
-  num_workers: 8
+  num_workers: 32
   noise_sort: 'ot'
   use_rot_aug: False  # <---- whether to use rotation augmentation when training
   use_scale_aug: False  # <---- whether to use scaling augmentation when training
@@ -30,10 +30,10 @@ model:
 # recommend to use default settings
 train:
   max_steps: 100000 # 100k is enough for overfitting
-  global_batch_size: 16 # 4*7
+  global_batch_size: 128
   output_dir: 'output'
   exp_name: 'overfit-base-120m-ot-x1' # <---- experiment name, set as you like
-  log_every: 100
+  log_every: 1
   ckpt_every: 5000 # 5000 
   
 optimizer:

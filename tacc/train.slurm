@@ -18,9 +18,8 @@ export CC=gcc
 export CXX=g++
 export TORCH_CUDA_ARCH_LIST="9.0a"
 conda activate meshflow
-# source $SCRATCH/envs/PhysFlow/bin/activate
-cd $HOME/MeshFlow
+cd $HOME/MeshFlow2
 echo "Python        : $(which python)"
 echo "Conda env     : $CONDA_DEFAULT_ENV"
-accelerate launch --num_processes 1 --mixed_precision bf16 train.py --config configs/overfit/base-500m-x1.yaml
+accelerate launch --num_processes 1 --mixed_precision bf16 train.py --config __CONFIG_PLACEHOLDER__
 echo "Job finished at $(date)"

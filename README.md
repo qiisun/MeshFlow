@@ -26,6 +26,8 @@ This repository is trimmed to a minimal training/inference/evaluation pipeline f
 ```bash
 conda create -n mflow python=3.10 -y
 conda activate mflow
+pip install torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 --index-url https://download.pytorch.org/whl/cu124
+pip install https://github.com/Dao-AILab/flash-attention/releases/download/v2.6.3/flash_attn-2.6.3+cu123torch2.4cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
 pip install -r requirements.txt
 ```
 
@@ -49,7 +51,7 @@ bash tools/run_train.sh configs/overfit/base-120m-x1.yaml
 python inference.py --config configs/overfit/base-120m-x1.yaml
 ```
 
-### 4) Generation Metrics Evaluation [TODO]
+### 4) Generation Metrics Evaluation [TODO0]
 
 ```bash
 python tools/point_evaluation.py --help

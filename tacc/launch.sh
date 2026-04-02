@@ -25,11 +25,12 @@ if [ ! -f "$CONFIG" ]; then
 fi
 
 # Derive a readable job name from the config filename (without path/extension).
-JOB_NAME="mf2-$(basename "${CONFIG}" .yaml)"
+TIMESTAMP=$(date +%b%d-%I%M%p)
+JOB_NAME="mf2-$(basename "${CONFIG}" .yaml)-${TIMESTAMP}"
 
 # Build a temporary slurm script that injects the config path.
 SLURM_SCRIPT=$(mktemp /tmp/meshflow_slurm_XXXXXX.sh)
-sed "s|__CONFIG_PLACEHOLDER__|${CONFIG}|" "$TEMPLATE" > "$SLURM_SCRIPT"
+sed -e "s|__CONFIG_PLACEHOLDER__|${CONFIG}|" -e "s|__JOB_NAME__|${JOB_NAME}|g" "$TEMPLATE" > "$SLURM_SCRIPT"
 
 echo "Submitting: config=${CONFIG}  job_name=${JOB_NAME}"
 sbatch --job-name="$JOB_NAME" "$@" "$SLURM_SCRIPT"

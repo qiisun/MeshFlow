@@ -5,8 +5,8 @@
 
 
 #SBATCH -J meshflow        # Job's name
-#SBATCH -o /work/11264/guandao/vista/MeshFlow2/logs/meshflow.%j.out # Output
-#SBATCH -e /work/11264/guandao/vista/MeshFlow2/logs/meshflow.%j.err # Error's output
+#SBATCH -o /work/11264/guandao/vista/MeshFlow2/logs/__JOB_NAME__.%j.out # Output
+#SBATCH -e /work/11264/guandao/vista/MeshFlow2/logs/__JOB_NAME__.%j.err # Error's output
 #SBATCH -p gh              # node name
 #SBATCH -N 1               # how many nodes
 #SBATCH -n 1               # how many tasks

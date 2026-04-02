@@ -4,7 +4,7 @@ data:
   data_path: './downloaded_data/ss_overfit'
   valid_path: 'debug/valid'
   num_workers: 8
-  noise_sort: 'random'
+  noise_sort: 'ot'
   use_rot_aug: False  # <---- whether to use rotation augmentation when training
   use_scale_aug: False  # <---- whether to use scaling augmentation when training
   use_permute_aug: True  # <---- whether to use permutation augmentation when training
@@ -33,7 +33,7 @@ train:
   max_steps: 100000
   global_batch_size: 16 # 4*7
   output_dir: 'output'
-  exp_name: 'overfit-base-500m-x1-simplified' # <---- experiment name, set as you like
+  exp_name: 'overfit-base-500m-ot-x1-simplified' # <---- experiment name, set as you like
   log_every: 100
   ckpt_every: 5000
   

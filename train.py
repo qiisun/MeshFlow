@@ -331,12 +331,39 @@ def create_logger(logging_dir):
     logger = logging.getLogger(__name__)
     return logger
 
+def apply_overrides(config, overrides):
+    """Apply dot-notation overrides to config, e.g. train.global_batch_size=64."""
+    for override in overrides:
+        key, val = override.split('=', 1)
+        keys = key.split('.')
+        d = config
+        for k in keys[:-1]:
+            d = d[k]
+        # Auto-cast value types
+        if val.lower() in ('true', 'false'):
+            val = val.lower() == 'true'
+        else:
+            try:
+                val = int(val)
+            except ValueError:
+                try:
+                    val = float(val)
+                except ValueError:
+                    pass
+        d[keys[-1]] = val
+
+
 if __name__ == "__main__":
     # read config
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, default='configs/base_jit.yaml')
+    parser.add_argument('overrides', nargs='*', help='Config overrides in dot notation, e.g. train.global_batch_size=64')
     args = parser.parse_args()
 
     accelerator = Accelerator()
     train_config = load_config(args.config)
+    if args.overrides:
+        apply_overrides(train_config, args.overrides)
+        if accelerator.is_main_process:
+            print(f"[INFO] Config overrides: {args.overrides}")
     do_train(train_config, accelerator)

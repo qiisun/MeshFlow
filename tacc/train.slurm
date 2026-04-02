@@ -21,5 +21,5 @@ conda activate meshflow
 cd $HOME/MeshFlow2
 echo "Python        : $(which python)"
 echo "Conda env     : $CONDA_DEFAULT_ENV"
-accelerate launch --num_processes 1 --mixed_precision bf16 train.py --config __CONFIG_PLACEHOLDER__
+accelerate launch --num_processes 1 --mixed_precision bf16 train.py --config __CONFIG_PLACEHOLDER__ __OVERRIDES_PLACEHOLDER__
 echo "Job finished at $(date)"

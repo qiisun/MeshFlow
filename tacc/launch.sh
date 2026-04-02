@@ -26,17 +26,20 @@ if [ ! -f "$CONFIG" ]; then
     exit 1
 fi
 
-# Split remaining args into overrides (key=val) and sbatch args (after --)
+# Split remaining args: anything containing '=' is an override, '--' separates sbatch args.
 OVERRIDES=""
-SBATCH_ARGS=()
-while [ $# -gt 0 ]; do
-    if [ "$1" = "--" ]; then
-        shift
-        SBATCH_ARGS=("$@")
-        break
+SBATCH_ARGS=""
+PAST_SEP=false
+for arg in "$@"; do
+    if [ "$arg" = "--" ]; then
+        PAST_SEP=true
+        continue
     fi
-    OVERRIDES="${OVERRIDES} $1"
-    shift
+    if $PAST_SEP; then
+        SBATCH_ARGS="${SBATCH_ARGS} ${arg}"
+    else
+        OVERRIDES="${OVERRIDES} ${arg}"
+    fi
 done
 
 # Derive a readable job name from the config filename (without path/extension).
@@ -51,6 +54,8 @@ sed -e "s|__CONFIG_PLACEHOLDER__|${CONFIG}|" \
     "$TEMPLATE" > "$SLURM_SCRIPT"
 
 echo "Submitting: config=${CONFIG}  overrides=${OVERRIDES:-none}  job_name=${JOB_NAME}"
-sbatch --job-name="$JOB_NAME" "${SBATCH_ARGS[@]+"${SBATCH_ARGS[@]}"}" "$SLURM_SCRIPT"
+echo "Generated script:"
+cat "$SLURM_SCRIPT" | grep "accelerate launch"
+sbatch --job-name="$JOB_NAME" ${SBATCH_ARGS} "$SLURM_SCRIPT"
 
 rm -f "$SLURM_SCRIPT"

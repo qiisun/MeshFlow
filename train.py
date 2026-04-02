@@ -171,6 +171,7 @@ def do_train(train_config, accelerator):
     ema.eval()
     
     train_config['train']['resume'] = train_config['train'].get('resume', False)
+    train_steps = 0
 
     if train_config['train']['resume']:
         checkpoint_files = glob(f"{checkpoint_dir}/*.pt")
@@ -188,8 +189,6 @@ def do_train(train_config, accelerator):
                 logger.info("No checkpoint found. Starting training from scratch.")
     model, opt, loader = accelerator.prepare(model, opt, loader)
 
-    if not train_config['train']['resume']:
-        train_steps = 0
     log_steps = 0
     running_loss = 0
     start_time = time()

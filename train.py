@@ -145,7 +145,7 @@ def do_train(train_config, accelerator):
             logger.info(f"Loaded pretrained model from {train_config['train']['weight_init']}")
     requires_grad(ema, False)
     
-    model = DDP(model.to(device), device_ids=[rank])
+    model = model.to(device)
     transport = create_transport(
         train_config['transport']['path_type'],
         train_config['transport']['prediction'],
@@ -166,7 +166,7 @@ def do_train(train_config, accelerator):
         logger.info(f"Batch size {batch_size_per_gpu} per gpu, with {global_batch_size} global batch size")
         if valid_loader is not None:
             logger.info(f"Validation Dataset contains {valid_size:,} images {train_config['data']['valid_path']}")
-    update_ema(ema, model.module, decay=0)
+    update_ema(ema, model, decay=0)
     model.train()
     ema.eval()
     

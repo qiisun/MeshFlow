@@ -124,6 +124,7 @@ class SelfAttention(nn.Module):
         dropout=0.0,
         causal=False,
         mixed_precision='bf16',
+        qk_norm=False,
     ):
         super().__init__()
         self.hidden_dim = hidden_dim
@@ -138,17 +139,20 @@ class SelfAttention(nn.Module):
 
         self.qkv_proj = nn.Linear(self.input_dim, 3 * self.hidden_dim)
         self.out_proj = nn.Linear(self.hidden_dim, self.output_dim)
+        self.q_norm = nn.LayerNorm(self.head_dim) if qk_norm else nn.Identity()
+        self.k_norm = nn.LayerNorm(self.head_dim) if qk_norm else nn.Identity()
 
     def forward(self, x, mask=None):
         batch_size, n_tokens, _ = x.shape
         qkv = self.qkv_proj(x).reshape(batch_size, n_tokens, 3, self.num_heads, self.head_dim)
         qkv = qkv.permute(2, 0, 1, 3, 4)
         q, k, v = qkv.chunk(3, dim=0)
+        q, k = self.q_norm(q[0]), self.k_norm(k[0])
 
         backend = 'pytorch-sdpa' if self.mixed_precision == 'fp32' else 'flash-attn'
         x = attention(
-            q[0],
-            k[0],
+            q,
+            k,
             v[0],
             mask_q=mask,
             mask_kv=mask,

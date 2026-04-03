@@ -179,7 +179,7 @@ class DiTLayer(nn.Module):
             self.norm1 = RMSNorm(dim)
             self.norm2 = RMSNorm(dim)
             
-        self.attn = SelfAttention(dim, num_heads, mixed_precision=mixed_precision)
+        self.attn = SelfAttention(dim, num_heads, mixed_precision=mixed_precision, qk_norm=use_qknorm)
         self.mlp = FeedForward(dim, mult=mlp_ratio, nonlin_type=nonlin_type)
         self.adaLN_modulation = nn.Sequential(
             nn.SiLU(),
@@ -229,7 +229,8 @@ class DiT(nn.Module):
                 use_dit_like_pe=False, face_cond=False, face_bin=None,
                 use_rmsnorm=False,
                 use_repa=False,
-                is_latent=False
+                is_latent=False,
+                use_qknorm=False,
                 ):
         super().__init__()
         input_dim = 3 if version > 1 else 9
@@ -260,7 +261,7 @@ class DiT(nn.Module):
             self.face_bin = face_bin
 
         # transformer layers
-        self.layers = nn.ModuleList([DiTLayer(hidden_dim, num_heads, gradient_checkpointing, mixed_precision=mixed_precision, version=version, use_rmsnorm=use_rmsnorm) for _ in range(num_layers)])
+        self.layers = nn.ModuleList([DiTLayer(hidden_dim, num_heads, gradient_checkpointing, mixed_precision=mixed_precision, version=version, use_rmsnorm=use_rmsnorm, use_qknorm=use_qknorm) for _ in range(num_layers)])
 
         # project out     
         self.final_layer = FinalLayer(hidden_dim, input_dim, use_rmsnorm=use_rmsnorm) # input_dim: 9 for v2, 3 for v3

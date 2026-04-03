@@ -343,9 +343,10 @@ def collate_fn(batch, max_seq_length=800):
             ], axis=0))
 
         else:
-            tokens.append(np.concatenate([
-                item['coords'][:max_len], 
-            ], axis=0))
+            tokens.append(item['coords'][:max_len])
+
+            if "noise" in item.keys():
+                noises.append(item['noise'][:max_len])
 
             masks.append(np.ones(max_len))
 

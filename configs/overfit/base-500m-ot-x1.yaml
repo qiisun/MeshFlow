@@ -1,8 +1,9 @@
 # we recommend to read config_details.yaml first.
+ckpt_path: output/overfit-base-120m-x1/checkpoints/00075000.pt # using when inference
 data:
   data_path: './downloaded_data/ss_overfit'
   valid_path: 'debug/valid'
-  num_workers: 32
+  num_workers: 8
   noise_sort: 'ot'
   use_rot_aug: False  # <---- whether to use rotation augmentation when training
   use_scale_aug: False  # <---- whether to use scaling augmentation when training
@@ -14,10 +15,10 @@ model:
   use_rmsnorm: true
   # in_chans: 32
 
-  hidden_dim: 768
-  num_heads: 12
+  hidden_dim: 1024
+  num_heads: 16
   max_length: 800
-  num_layers: 12
+  num_layers: 24
   gradient_checkpointing: False
   use_coord_encoding: True
   version: 3
@@ -29,15 +30,15 @@ model:
 
 # recommend to use default settings
 train:
-  max_steps: 100000 # 100k is enough for overfitting
-  global_batch_size: 128
+  max_steps: 100000
+  global_batch_size: 16 # 4*7
   output_dir: 'output'
-  exp_name: 'overfit-base-120m-ot-x1-simplified' # <---- experiment name, set as you like
+  exp_name: 'overfit-base-500m-ot-x1-simplified' # <---- experiment name, set as you like
   log_every: 100
-  ckpt_every: 5000 # 5000 
+  ckpt_every: 5000
   
 optimizer:
-  lr: 0.0001
+  lr: 0.0005
   beta2: 0.95
   
 # recommend to use default settings

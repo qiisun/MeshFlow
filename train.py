@@ -145,7 +145,7 @@ def do_train(train_config, accelerator):
             logger.info(f"Loaded pretrained model from {train_config['train']['weight_init']}")
     requires_grad(ema, False)
     
-    model = DDP(model.to(device), device_ids=[rank])
+    model = model.to(device)
     transport = create_transport(
         train_config['transport']['path_type'],
         train_config['transport']['prediction'],
@@ -166,11 +166,12 @@ def do_train(train_config, accelerator):
         logger.info(f"Batch size {batch_size_per_gpu} per gpu, with {global_batch_size} global batch size")
         if valid_loader is not None:
             logger.info(f"Validation Dataset contains {valid_size:,} images {train_config['data']['valid_path']}")
-    update_ema(ema, model.module, decay=0)
+    update_ema(ema, model, decay=0)
     model.train()
     ema.eval()
     
     train_config['train']['resume'] = train_config['train'].get('resume', False)
+    train_steps = 0
 
     if train_config['train']['resume']:
         checkpoint_files = glob(f"{checkpoint_dir}/*.pt")
@@ -188,8 +189,6 @@ def do_train(train_config, accelerator):
                 logger.info("No checkpoint found. Starting training from scratch.")
     model, opt, loader = accelerator.prepare(model, opt, loader)
 
-    if not train_config['train']['resume']:
-        train_steps = 0
     log_steps = 0
     running_loss = 0
     start_time = time()
@@ -332,12 +331,39 @@ def create_logger(logging_dir):
     logger = logging.getLogger(__name__)
     return logger
 
+def apply_overrides(config, overrides):
+    """Apply dot-notation overrides to config, e.g. train.global_batch_size=64."""
+    for override in overrides:
+        key, val = override.split('=', 1)
+        keys = key.split('.')
+        d = config
+        for k in keys[:-1]:
+            d = d[k]
+        # Auto-cast value types
+        if val.lower() in ('true', 'false'):
+            val = val.lower() == 'true'
+        else:
+            try:
+                val = int(val)
+            except ValueError:
+                try:
+                    val = float(val)
+                except ValueError:
+                    pass
+        d[keys[-1]] = val
+
+
 if __name__ == "__main__":
     # read config
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, default='configs/base_jit.yaml')
+    parser.add_argument('overrides', nargs='*', help='Config overrides in dot notation, e.g. train.global_batch_size=64')
     args = parser.parse_args()
 
     accelerator = Accelerator()
     train_config = load_config(args.config)
+    if args.overrides:
+        apply_overrides(train_config, args.overrides)
+        if accelerator.is_main_process:
+            print(f"[INFO] Config overrides: {args.overrides}")
     do_train(train_config, accelerator)

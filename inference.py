@@ -371,6 +371,8 @@ def build_model_from_config(train_config):
     if model_arch != 'equidit':
         raise ValueError(f"Unsupported model_type: {model_arch}. Only 'equidit' is supported.")
 
+    model_mixed_precision = train_config['model'].get('mixed_precision') or 'bf16'
+
     return DiT(
         hidden_dim=train_config['model']['hidden_dim'],
         num_heads=train_config['model']['num_heads'],
@@ -380,11 +382,12 @@ def build_model_from_config(train_config):
         use_coord_encoding=train_config['model']['use_coord_encoding'],
         version=train_config['model']['version'],
         pe_freq=train_config['model']['pe_freq'],
-        mixed_precision=train_config['model']['mixed_precision'],
+        mixed_precision=model_mixed_precision,
         use_dit_like_pe=train_config['model']['use_dit_like_pe'],
         face_cond=train_config['model']['face_cond'],
         face_bin=train_config['model']['face_bin'],
         use_rmsnorm=train_config['model'].get('use_rmsnorm', False),
+        use_qknorm=train_config['model'].get('use_qknorm', False),
     )
 
 def load_config(config_path):
@@ -392,14 +395,97 @@ def load_config(config_path):
         config = yaml.safe_load(file)
     return config
 
+
+def _parse_cli_value(raw_val):
+    if not isinstance(raw_val, str):
+        return raw_val
+    lower = raw_val.lower()
+    if lower in ('true', 'false'):
+        return lower == 'true'
+    if lower in ('none', 'null'):
+        return None
+    try:
+        return int(raw_val)
+    except ValueError:
+        try:
+            return float(raw_val)
+        except ValueError:
+            return raw_val
+
+
+def apply_overrides(config, overrides):
+    """Apply dot-notation overrides to config, e.g. sample.cfg_scale=2.0."""
+    for override in overrides:
+        key, raw_val = override.split('=', 1)
+        keys = key.split('.')
+        d = config
+        for k in keys[:-1]:
+            if k not in d or not isinstance(d[k], dict):
+                d[k] = {}
+            d = d[k]
+        d[keys[-1]] = _parse_cli_value(raw_val)
+
+
+def _unknown_args_to_overrides(unknown_args):
+    """Convert --foo=bar / --foo bar to dot-notation overrides."""
+    aliases = {
+        'ckpt_path': 'ckpt_path',
+        'use_qk_norm': 'model.use_qknorm',
+        'use_qknorm': 'model.use_qknorm',
+        'num_workers': 'data.num_workers',
+        'global_batch_size': 'train.global_batch_size',
+        'max_grad_norm': 'optimizer.max_grad_norm',
+    }
+
+    overrides = []
+    i = 0
+    while i < len(unknown_args):
+        arg = unknown_args[i]
+        if not arg.startswith('--'):
+            i += 1
+            continue
+
+        token = arg[2:]
+        if '=' in token:
+            raw_key, raw_val = token.split('=', 1)
+            key = aliases.get(raw_key, raw_key)
+            if '.' not in key and key not in ('ckpt_path',):
+                key = f'model.{key}'
+            overrides.append(f'{key}={raw_val}')
+            i += 1
+            continue
+
+        raw_key = token
+        key = aliases.get(raw_key, raw_key)
+        if i + 1 < len(unknown_args) and not unknown_args[i + 1].startswith('--'):
+            raw_val = unknown_args[i + 1]
+            i += 2
+        else:
+            raw_val = 'true'
+            i += 1
+
+        if '.' not in key and key not in ('ckpt_path',):
+            key = f'model.{key}'
+        overrides.append(f'{key}={raw_val}')
+
+    return overrides
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, default='configs/base_jit.yaml')
     parser.add_argument('--demo', action='store_true', default=False)
-    args = parser.parse_args()
+    parser.add_argument('overrides', nargs='*', help='Config overrides in dot notation, e.g. sample.cfg_scale=2.0')
+    args, unknown_args = parser.parse_known_args()
     _configure_nccl_env_for_consumer_rtx()
     accelerator = Accelerator()
     train_config = load_config(args.config)
+
+    cli_overrides = list(args.overrides)
+    cli_overrides.extend(_unknown_args_to_overrides(unknown_args))
+    if cli_overrides:
+        apply_overrides(train_config, cli_overrides)
+        if accelerator.is_main_process:
+            print(f"[INFO] Config overrides: {cli_overrides}")
 
     assert 'ckpt_path' in train_config, "ckpt_path must be specified in config"
     ckpt_dir = train_config['ckpt_path']

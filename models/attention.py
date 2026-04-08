@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
+from models.utils import RMSNorm
 
 
 try:
@@ -114,6 +115,19 @@ def attention(q, k, v, mask_q=None, mask_kv=None, dropout=0.0, causal=False, bac
     raise ValueError(f"Unsupported backend: {backend}")
 
 
+class PrecisionSafeLayerNorm(nn.Module):
+    """Run RMSNorm in fp32 for stability, then cast back to input dtype."""
+
+    def __init__(self, hidden_dim):
+        super().__init__()
+        self.norm = RMSNorm(hidden_dim)
+
+    def forward(self, x):
+        if x.dtype in (torch.float16, torch.bfloat16):
+            return self.norm(x.float()).to(dtype=x.dtype)
+        return self.norm(x)
+
+
 class SelfAttention(nn.Module):
     def __init__(
         self,
@@ -139,8 +153,8 @@ class SelfAttention(nn.Module):
 
         self.qkv_proj = nn.Linear(self.input_dim, 3 * self.hidden_dim)
         self.out_proj = nn.Linear(self.hidden_dim, self.output_dim)
-        self.q_norm = nn.LayerNorm(self.head_dim) if qk_norm else nn.Identity()
-        self.k_norm = nn.LayerNorm(self.head_dim) if qk_norm else nn.Identity()
+        self.q_norm = PrecisionSafeLayerNorm(self.head_dim) if qk_norm else nn.Identity()
+        self.k_norm = PrecisionSafeLayerNorm(self.head_dim) if qk_norm else nn.Identity()
 
     def forward(self, x, mask=None):
         batch_size, n_tokens, _ = x.shape
@@ -150,6 +164,8 @@ class SelfAttention(nn.Module):
         q, k = self.q_norm(q[0]), self.k_norm(k[0])
 
         backend = 'pytorch-sdpa' if self.mixed_precision == 'fp32' else 'flash-attn'
+        if q.dtype not in (torch.float16, torch.bfloat16):
+            backend = 'pytorch-sdpa'
         x = attention(
             q,
             k,

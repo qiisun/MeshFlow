@@ -1,9 +1,9 @@
 # we recommend to read config_details.yaml first.
 ckpt_path: output/overfit-base-120m-x1/checkpoints/00075000.pt # using when inference
 data:
-  data_path: './downloaded_data/shapenet-03211117'
+  data_path: './downloaded_data/shapenet-03001627'
   valid_path: 'debug/valid'
-  num_workers: 8
+  num_workers: 16
   noise_sort: 'random'
   use_rot_aug: False  # <---- whether to use rotation augmentation when training
   use_scale_aug: False  # <---- whether to use scaling augmentation when training
@@ -12,6 +12,7 @@ data:
 # recommend to use default settings
 model:
   model_type: "equidit"
+  use_qknorm: true
   use_rmsnorm: true
   # in_chans: 32
 
@@ -23,7 +24,7 @@ model:
   use_coord_encoding: True
   version: 3
   pe_freq: 20
-  mixed_precision:
+  mixed_precision: bf16
   use_dit_like_pe: False
   face_cond: True
   face_bin: 20
@@ -31,13 +32,15 @@ model:
 # recommend to use default settings
 train:
   max_steps: 100000
-  global_batch_size: 16 # 4*7
+  global_batch_size: 32 # 4*7
   output_dir: 'output'
-  exp_name: 'base-120m-x1-03211117' # <---- experiment name, set as you like
+  exp_name: 'base-120m-x1-chair' # <---- experiment name, set as you like
   log_every: 100
   ckpt_every: 5000
   
 optimizer:
+  max_grad_norm: 2.0
+  gradient_accumulation_steps: 1
   lr: 0.0005
   beta2: 0.95
   

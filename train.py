@@ -50,6 +50,8 @@ def build_model_from_config(train_config):
     if model_arch != 'equidit':
         raise ValueError(f"Unsupported model_type: {model_arch}. Only 'equidit' is supported.")
 
+    model_mixed_precision = train_config['model'].get('mixed_precision') or 'bf16'
+
     model = DiT(
         hidden_dim=train_config['model']['hidden_dim'],
         num_heads=train_config['model']['num_heads'],
@@ -59,11 +61,12 @@ def build_model_from_config(train_config):
         use_coord_encoding=train_config['model']['use_coord_encoding'],
         version=train_config['model']['version'],
         pe_freq=train_config['model']['pe_freq'],
-        mixed_precision=train_config['model']['mixed_precision'],
+        mixed_precision=model_mixed_precision,
         use_dit_like_pe=train_config['model']['use_dit_like_pe'],
         face_cond=train_config['model']['face_cond'],
         face_bin=train_config['model']['face_bin'],
         use_rmsnorm=train_config['model'].get('use_rmsnorm', False),
+        use_qknorm=train_config['model'].get('use_qknorm', False),
     )
 
     return model, model_arch
@@ -128,6 +131,9 @@ def do_train(train_config, accelerator):
     checkpoint_dir, experiment_dir, logger, writer = setup_experiment(train_config, accelerator)
 
     rank = accelerator.local_process_index
+    grad_accum_steps = int(train_config.get('optimizer', {}).get('gradient_accumulation_steps', 1))
+    if grad_accum_steps < 1:
+        raise ValueError("optimizer.gradient_accumulation_steps must be >= 1")
 
     model, model_arch = build_model_from_config(train_config)
     
@@ -154,6 +160,9 @@ def do_train(train_config, accelerator):
     )
     if accelerator.is_main_process:
         logger.info(f"LightningDiT Parameters: {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M")
+        logger.info(f"Accelerate mixed precision: {accelerator.mixed_precision}")
+        logger.info(f"Model mixed precision: {train_config['model'].get('mixed_precision') or 'bf16'}")
+        logger.info(f"Gradient accumulation steps: {grad_accum_steps}")
         logger.info(f"Optimizer: AdamW, lr={train_config['optimizer']['lr']}, beta2={train_config['optimizer']['beta2']}")
         logger.info(f'Use lognorm sampling: {train_config["transport"]["use_lognorm"]}')
     opt = torch.optim.AdamW(model.parameters(), lr=train_config['optimizer']['lr'], weight_decay=0, betas=(0.9, train_config['optimizer']['beta2']))
@@ -192,70 +201,73 @@ def do_train(train_config, accelerator):
     log_steps = 0
     running_loss = 0
     start_time = time()
+    opt.zero_grad(set_to_none=True)
 
     while True:
         for data in loader:
-            x1 = data['tokens']
-            x0 = data['noise']
-            y = data['num_faces']
-            mask = data['masks']
+            with accelerator.accumulate(model):
+                x1 = data['tokens']
+                x0 = data['noise']
+                y = data['num_faces']
+                mask = data['masks']
 
-            if accelerator.mixed_precision == 'no':
-                x1 = x1.to(device, dtype=torch.float32)
-                x0 = x0.to(device, dtype=torch.float32)
-            else:
-                x1 = x1.to(device)
-                x0 = x0.to(device)
-            y = y.to(device)
-            mask = mask.to(device)
-            model_kwargs = dict(y=y, mask=mask)
-                
-            loss_dict = transport.training_losses(model, x1, x0, model_kwargs)
-            loss = loss_dict["loss"].mean()
-                
-            opt.zero_grad()
-            accelerator.backward(loss)
-            if 'max_grad_norm' in train_config['optimizer']:
+                if accelerator.mixed_precision == 'no':
+                    x1 = x1.to(device, dtype=torch.float32)
+                    x0 = x0.to(device, dtype=torch.float32)
+                else:
+                    x1 = x1.to(device)
+                    x0 = x0.to(device)
+                y = y.to(device)
+                mask = mask.to(device)
+                model_kwargs = dict(y=y, mask=mask)
+
+                loss_dict = transport.training_losses(model, x1, x0, model_kwargs)
+                loss = loss_dict["loss"].mean()
+
+                accelerator.backward(loss)
+
                 if accelerator.sync_gradients:
-                    accelerator.clip_grad_norm_(model.parameters(), train_config['optimizer']['max_grad_norm'])
-            opt.step()
-            update_ema(ema, accelerator.unwrap_model(model), decay=0.9999)
+                    if 'max_grad_norm' in train_config['optimizer']:
+                        accelerator.clip_grad_norm_(model.parameters(), train_config['optimizer']['max_grad_norm'])
+                    opt.step()
+                    opt.zero_grad(set_to_none=True)
+                    update_ema(ema, accelerator.unwrap_model(model), decay=0.9999)
 
-            running_loss += loss.item()
-            log_steps += 1
-            train_steps += 1
-            if train_steps % train_config['train']['log_every'] == 0:
-                if torch.cuda.is_available():
-                    torch.cuda.synchronize()
-                end_time = time()
-                steps_per_sec = log_steps / (end_time - start_time)
-                avg_loss = torch.tensor(running_loss / log_steps, device=device)
-                avg_loss = accelerator.gather(avg_loss).mean().item()
-                if accelerator.is_main_process:
-                    logger.info(f"(step={train_steps:07d}) Train Loss: {avg_loss:.5f}, Train Steps/Sec: {steps_per_sec:.2f}")
-                    writer.add_scalar('Loss/train', avg_loss, train_steps)
-                running_loss = 0
-                log_steps = 0
-                start_time = time()
+                    running_loss += loss.item()
+                    log_steps += 1
+                    train_steps += 1
+                    if train_steps % train_config['train']['log_every'] == 0:
+                        if torch.cuda.is_available():
+                            torch.cuda.synchronize()
+                        end_time = time()
+                        steps_per_sec = log_steps / (end_time - start_time)
+                        avg_loss = torch.tensor(running_loss / log_steps, device=device)
+                        avg_loss = accelerator.gather(avg_loss).mean().item()
+                        if accelerator.is_main_process:
+                            logger.info(f"(step={train_steps:07d}) Train Loss: {avg_loss:.5f}, Train Steps/Sec: {steps_per_sec:.2f}")
+                            writer.add_scalar('Loss/train', avg_loss, train_steps)
+                        running_loss = 0
+                        log_steps = 0
+                        start_time = time()
 
-            if train_steps % train_config['train']['ckpt_every'] == 0 and train_steps > 0:
-                if accelerator.is_main_process:
-                    checkpoint = {
-                        "model": accelerator.unwrap_model(model).state_dict(),
-                        "ema": ema.state_dict(),
-                        "opt": opt.state_dict(),
-                        "config": train_config,
-                    }
-                    checkpoint_path = f"{checkpoint_dir}/{train_steps:08d}.pt"
-                    torch.save(checkpoint, checkpoint_path)
-                    if accelerator.is_main_process:
-                        logger.info(f"Saved checkpoint to {checkpoint_path}")
-                accelerator.wait_for_everyone()
+                    if train_steps % train_config['train']['ckpt_every'] == 0 and train_steps > 0:
+                        if accelerator.is_main_process:
+                            checkpoint = {
+                                "model": accelerator.unwrap_model(model).state_dict(),
+                                "ema": ema.state_dict(),
+                                "opt": opt.state_dict(),
+                                "config": train_config,
+                            }
+                            checkpoint_path = f"{checkpoint_dir}/{train_steps:08d}.pt"
+                            torch.save(checkpoint, checkpoint_path)
+                            if accelerator.is_main_process:
+                                logger.info(f"Saved checkpoint to {checkpoint_path}")
+                        accelerator.wait_for_everyone()
 
-                if 'valid_path' in train_config['data']:
-                    if accelerator.is_main_process:
-                        logger.info(f"Start evaluating at step {train_steps}")
-                        val_loss, chamfer_loss, report_chamfer = do_sample_simple(ema,
+                        if 'valid_path' in train_config['data']:
+                            if accelerator.is_main_process:
+                                logger.info(f"Start evaluating at step {train_steps}")
+                                val_loss, chamfer_loss, report_chamfer = do_sample_simple(ema,
                                                     valid_loader,
                                                     device,
                                                     transport,
@@ -263,15 +275,15 @@ def do_train(train_config, accelerator):
                                                     accelerator,
                                                     train_steps,
                                                     save_dir=experiment_dir)
-                    if accelerator.is_main_process:
-                        if report_chamfer:
-                            logger.info(f"Validation Loss: {val_loss:.4f}, Chamfer Loss: {chamfer_loss:.6f}")
-                        else:
-                            logger.info(f"Validation Loss: {val_loss:.4f}")
-                        writer.add_scalar('Loss/validation', val_loss, train_steps)
-                        if report_chamfer:
-                            writer.add_scalar('Loss/Chamfer', chamfer_loss, train_steps)
-                    model.train()
+                            if accelerator.is_main_process:
+                                if report_chamfer:
+                                    logger.info(f"Validation Loss: {val_loss:.4f}, Chamfer Loss: {chamfer_loss:.6f}")
+                                else:
+                                    logger.info(f"Validation Loss: {val_loss:.4f}")
+                                writer.add_scalar('Loss/validation', val_loss, train_steps)
+                                if report_chamfer:
+                                    writer.add_scalar('Loss/Chamfer', chamfer_loss, train_steps)
+                            model.train()
             if train_steps >= train_config['train']['max_steps']:
                 break
         if train_steps >= train_config['train']['max_steps']:
@@ -360,10 +372,18 @@ if __name__ == "__main__":
     parser.add_argument('overrides', nargs='*', help='Config overrides in dot notation, e.g. train.global_batch_size=64')
     args = parser.parse_args()
 
-    accelerator = Accelerator()
     train_config = load_config(args.config)
     if args.overrides:
         apply_overrides(train_config, args.overrides)
-        if accelerator.is_main_process:
+
+    grad_accum_steps = int(train_config.get('optimizer', {}).get('gradient_accumulation_steps', 1))
+    if grad_accum_steps < 1:
+        raise ValueError("optimizer.gradient_accumulation_steps must be >= 1")
+
+    accelerator = Accelerator(gradient_accumulation_steps=grad_accum_steps)
+
+    if accelerator.is_main_process:
+        print(f"[INFO] gradient_accumulation_steps={grad_accum_steps}")
+        if args.overrides:
             print(f"[INFO] Config overrides: {args.overrides}")
     do_train(train_config, accelerator)

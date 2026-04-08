@@ -40,18 +40,17 @@ cd ../..
 ```
 
 ### 2) Train
-
 ```bash
-bash tools/run_train.sh configs/overfit/base-120m-ot-x1.yaml
+bash tools/run_train.sh configs/overfit/base-120m-ot-x1.yaml --train.global_batch_size=4
 ```
 
-### 3) Inference
+### 3) Inference (standalone)
 
 ```bash
-python inference.py --config configs/overfit/base-120m-x1.yaml
+python inference.py --config configs/overfit/base-120m-x1.yaml --ckpt_path=output/overfit-base-120m-x1/checkpoints/00075000.pt --use_qk_norm=false --demo # --demo means only generate 8 samples
 ```
 
-### 4) Generation Metrics Evaluation [TODO0]
+### 4) Generation Metrics Evaluation [TODO]
 
 ```bash
 python tools/point_evaluation.py --help
@@ -130,16 +129,12 @@ downloaded_data/ss_overfit/
     *.npz
 ```
 
-## Smoke Test (Train + Inference)
-
-If you want a quick end-to-end pipeline check, run a tiny config first:
+## Train ShapeNet Category
 
 ```bash
-NCCL_P2P_DISABLE=1 NCCL_IB_DISABLE=1 accelerate launch --num_processes 1 train_pixel.py --config configs/overfit/smoke-min.yaml
-python inference_dit.py --config configs/overfit/smoke-min.yaml --demo
+bash tools/run_train.sh configs/snet/base-120m-x1-bench.yaml
 ```
 
-`smoke-min.yaml` uses a small model and very few steps just to verify the pipeline runs.
 
 ## Structure
 
@@ -157,4 +152,17 @@ tools/
 models/
 datasets/
 utils/
+```
+
+
+## Citations
+Please cite our work if you find it useful:
+
+```latex
+@inproceedings{meshflow,
+ title={},
+ author={},
+ journal={},
+ year={2026}
+}
 ```

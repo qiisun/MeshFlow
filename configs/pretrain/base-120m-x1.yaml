@@ -2,7 +2,7 @@
 data:
   data_path: './downloaded_data/sketchfab'
   valid_path: 'debug/valid'
-  num_workers: 8
+  num_workers: 16
   do_dataset_normalize: True
   noise_sort: 'random'
   use_rot_aug: False  # <---- whether to use rotation augmentation when training
@@ -13,7 +13,7 @@ data:
 # recommend to use default settings
 model:
   model_type: "equidit"
-  use_qknorm: false
+  use_qknorm: true
   use_swiglu: true
   use_rope: true
   use_rmsnorm: true
@@ -29,7 +29,7 @@ model:
   use_coord_encoding: True
   version: 3
   pe_freq: 20
-  mixed_precision:
+  mixed_precision: bf16
   use_dit_like_pe: False
   face_cond: True
   face_bin: 20
@@ -37,7 +37,7 @@ model:
 # recommend to use default settings
 train:
   max_steps: 10000000 # 10m
-  global_batch_size: 144 # 6*24
+  global_batch_size: 32 # 6*24
   global_seed: 0
   output_dir: 'output'
   exp_name: 'pretrain' # <---- experiment name, set as you like
@@ -48,6 +48,8 @@ train:
   repa_idx: 3
   
 optimizer:
+  max_grad_norm: 2.0
+  gradient_accumulation_steps: 1
   lr: 0.0005
   beta2: 0.95
   

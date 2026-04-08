@@ -1,6 +1,6 @@
 # we recommend to read config_details.yaml first.
 data:
-  data_path: './downloaded_data/ss_overfit'
+  data_path: './downloaded_data/shapenet-02828884'
   valid_path: 'debug/valid'
   num_workers: 16
   noise_sort: 'ot'
@@ -30,10 +30,10 @@ model:
 
 # recommend to use default settings
 train:
-  max_steps: 100000 # 100k is enough for overfitting
-  global_batch_size: 32
+  max_steps: 100000
+  global_batch_size: 32 # 4*7
   output_dir: 'output'
-  exp_name: 'overfit-base-120m-ot-x1-simplified' # <---- experiment name, set as you like
+  exp_name: '120m-ot-v-bench' # <---- experiment name, set as you like
   log_every: 100
   ckpt_every: 5000 # 5000 
   
@@ -48,7 +48,7 @@ transport:
   path_type: Linear
   prediction: velocity
   use_lognorm: true
-  use_jit: true
+  use_jit: false
 
 # recommend to use default settings
 sample:

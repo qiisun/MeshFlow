@@ -1,8 +1,19 @@
 CONFIG_PATH=$1
+shift
+
+OVERRIDES=()
+for arg in "$@"; do
+    # Support both `train.xxx=...` and `--train.xxx=...`.
+    if [[ "$arg" == --* ]]; then
+        OVERRIDES+=("${arg#--}")
+    else
+        OVERRIDES+=("$arg")
+    fi
+done
 
 
 TARGET_GPU_ID=2,3,4,5
-GPUS_PER_NODE=4
+GPUS_PER_NODE=1
 PRECISION=${PRECISION:-bf16}
 # GPUS_PER_NODE=${GPUS_PER_NODE:-1}
 NNODES=${WORLD_SIZE:-1}
@@ -20,6 +31,7 @@ accelerate launch \
     --mixed_precision $PRECISION \
     --gpu_ids $TARGET_GPU_ID \
     train.py \
-    --config $CONFIG_PATH
+    --config $CONFIG_PATH \
+    "${OVERRIDES[@]}"
 
 

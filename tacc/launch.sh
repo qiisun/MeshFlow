@@ -46,6 +46,12 @@ done
 TIMESTAMP=$(date +%b%d-%I%M%p)
 JOB_NAME="mf2-$(basename "${CONFIG}" .yaml)-${TIMESTAMP}"
 
+# Auto-inject a unique train.exp_name so each submission writes to its own output dir,
+# unless the caller already provided one.
+if ! echo "$OVERRIDES" | grep -q "train.exp_name="; then
+    OVERRIDES="${OVERRIDES} train.exp_name=${JOB_NAME}"
+fi
+
 # Build a temporary slurm script that injects the config path and overrides.
 SLURM_SCRIPT=$(mktemp /tmp/meshflow_slurm_XXXXXX.sh)
 sed -e "s|__CONFIG_PLACEHOLDER__|${CONFIG}|" \

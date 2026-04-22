@@ -12,6 +12,8 @@ try:
     FLASH_ATTN_AVAILABLE = True
 except Exception:
     FLASH_ATTN_AVAILABLE = False
+    print("[WARNING] FlashAttention not available — falling back to PyTorch SDPA. "
+          "Install flash-attn for faster training.")
 
 
 def _unpad_input(hidden_states, attention_mask):

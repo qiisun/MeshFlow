@@ -1,0 +1,66 @@
+# we recommend to read config_details.yaml first.
+ckpt_path: output/overfit-base-120m-x1/checkpoints/00075000.pt # using when inference
+data:
+  data_path: './downloaded_data/shapenet-04379243'
+  valid_path: 'debug/valid'
+  num_workers: 16
+  noise_sort: 'random'
+  use_rot_aug: False  # <---- whether to use rotation augmentation when training
+  use_scale_aug: False  # <---- whether to use scaling augmentation when training
+  use_permute_aug: True  # <---- whether to use permutation augmentation when training
+
+# recommend to use default settings
+model:
+  model_type: "equidit"
+  use_qknorm: true
+  use_rmsnorm: true
+  # in_chans: 32
+
+  hidden_dim: 1024
+  num_heads: 16
+  max_length: 800
+  num_layers: 24
+  gradient_checkpointing: False
+  use_coord_encoding: True
+  version: 3
+  pe_freq: 20
+  mixed_precision: bf16
+  use_dit_like_pe: False
+  face_cond: True
+  face_bin: 20
+
+# recommend to use default settings
+train:
+  max_steps: 100000
+  global_batch_size: 32 # 4*7
+  output_dir: 'output'
+  exp_name: '500m-x1-table' # <---- experiment name, set as you like
+  log_every: 100
+  ckpt_every: 5000
+  
+optimizer:
+  max_grad_norm: 2.0
+  gradient_accumulation_steps: 1
+  lr: 0.0005
+  beta2: 0.95
+  
+# recommend to use default settings
+transport:
+  path_type: Linear
+  prediction: velocity
+  use_lognorm: true
+  use_jit: true
+
+# recommend to use default settings
+sample:
+  mode: ODE
+  sampling_method: euler
+  atol: 0.000001
+  rtol: 0.0005
+  reverse: false
+  num_sampling_steps: 50
+  cfg_scale: 1.0 
+  
+  # recommend to use default settings
+  per_proc_batch_size: 4
+  timestep_shift: 0

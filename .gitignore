@@ -5,3 +5,4 @@ tensorboard_logs/*
 output/
 tools/run_train*
 .vscode/
+logs/

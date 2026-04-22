@@ -16,7 +16,7 @@ from accelerate import Accelerator
 
 from models.equidit import DiT
 from flow_matching import create_transport
-from inference import do_sample_simple
+from inference import do_sample_simple, do_sample
 from datasets.mesh_dataset import ObjaverseDataset, collate_fn
 
 
@@ -291,6 +291,29 @@ def do_train(train_config, accelerator):
 
     if accelerator.is_main_process:
         logger.info("Done!")
+
+    # Final inference: sample N meshes with EMA weights, reusing standalone do_sample.
+    if train_config['train'].get('final_inference', True):
+        if accelerator.is_main_process:
+            final_ckpt_path = f"{checkpoint_dir}/{train_steps:08d}.pt"
+            if not os.path.exists(final_ckpt_path):
+                torch.save({
+                    "model": accelerator.unwrap_model(model).state_dict(),
+                    "ema": ema.state_dict(),
+                    "opt": opt.state_dict(),
+                    "config": train_config,
+                }, final_ckpt_path)
+                logger.info(f"Saved final checkpoint to {final_ckpt_path}")
+        accelerator.wait_for_everyone()
+
+        if accelerator.is_main_process:
+            infer_config = deepcopy(train_config)
+            infer_config['ckpt_path'] = f"{checkpoint_dir}/{train_steps:08d}.pt"
+            infer_config['sample']['num_samples'] = train_config['train'].get('final_num_samples', 1000)
+            logger.info(f"Start final inference: {infer_config['sample']['num_samples']} samples")
+            out_dir = do_sample(infer_config, accelerator)
+            logger.info(f"Final inference saved meshes to {out_dir}")
+        accelerator.wait_for_everyone()
 
     return accelerator
 

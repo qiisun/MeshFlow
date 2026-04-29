@@ -59,7 +59,7 @@ sample:
   rtol: 0.0005
   reverse: false
   num_sampling_steps: 50
-  cfg_scale: 1.0 
+  cfg_scale: 2.0
   
   # recommend to use default settings
   per_proc_batch_size: 4

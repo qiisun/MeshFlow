@@ -23,11 +23,18 @@ except ImportError:
 DEFAULT_CATEGORY_MAP = {
     '02691156': 'airplane',
     '02808440': 'bathtub',
+    '02828884': 'bench',
     '02933112': 'cabinet',
+    '03001627': 'chair',
     '03211117': 'display',
     '02876657': 'bottle',
+    '03636649': 'lamp',
     '03691459': 'loudspeaker',
+    '04379243': 'table',
 }
+
+DEFAULT_CATEGORY_NAME_MAP = {v: k for k, v in DEFAULT_CATEGORY_MAP.items()}
+DEFAULT_CATEGORY_NAME_MAP.update({'monitor': '03211117', 'speaker': '03691459'})
 
 DEFAULT_MESHXL_PREFIX_MAP = {
     '02691156': '0_',
@@ -404,8 +411,9 @@ def test_simple():
 def sample_point_cloud(meshes, num_points=2048):
     ps = []
     for m in meshes:
-        m.vertices = normalize_mesh(m.vertices, bound=1) + 0.5
-        point = m.sample(num_points)
+        vertices = normalize_mesh(np.asarray(m.vertices), bound=1) + 0.5
+        mesh = trimesh.Trimesh(vertices=vertices, faces=m.faces, process=False)
+        point = mesh.sample(num_points)
         ps.append(point)
     ps = np.stack(ps)
     return ps
@@ -497,6 +505,11 @@ def load_gt_meshes(data_root, synset_id, max_meshes=None, max_face_length=800):
     return gt_meshes, gt_uids, dataset_dir
 
 
+def resolve_category(category):
+    category = category.lower()
+    return DEFAULT_CATEGORY_NAME_MAP.get(category, category)
+
+
 def evaluate_mesh_sets(gen_meshes, gt_meshes, batch_size=128, num_points=2048, device=None):
     if len(gen_meshes) != len(gt_meshes):
         target_count = min(len(gen_meshes), len(gt_meshes))
@@ -524,6 +537,21 @@ def evaluate_mesh_sets(gen_meshes, gt_meshes, batch_size=128, num_points=2048, d
     return metrics
 
 
+def average_metric_runs(run_metrics):
+    averaged = {'num_runs': len(run_metrics), 'runs': run_metrics}
+    if 'num_meshes' in run_metrics[0]:
+        averaged['num_meshes'] = run_metrics[0]['num_meshes']
+    metric_keys = [
+        key for key, value in run_metrics[0].items()
+        if key != 'num_meshes' and isinstance(value, (int, float))
+    ]
+    for key in metric_keys:
+        values = np.asarray([metrics[key] for metrics in run_metrics], dtype=np.float64)
+        averaged[key] = float(values.mean())
+        averaged[f'{key}_std'] = float(values.std(ddof=0))
+    return averaged
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description='Evaluate generated meshes against ShapeNet test splits.')
     parser.add_argument(
@@ -539,10 +567,11 @@ def parse_args():
         help='Root directory that contains shapenet-<synset> folders.',
     )
     parser.add_argument(
-        '--categories',
+        '--categories', '--category',
+        dest='categories',
         nargs='+',
-        default=list(DEFAULT_CATEGORY_MAP.keys()),
-        help='ShapeNet synset ids to evaluate.',
+        default=list(DEFAULT_MESHXL_PREFIX_MAP.keys()),
+        help='ShapeNet category names or synset ids to evaluate, e.g. bench chair or 02828884.',
     )
     parser.add_argument(
         '--prefix-map',
@@ -550,10 +579,16 @@ def parse_args():
         default=None,
         help='Optional JSON string mapping synset ids to MeshXL directory prefixes, e.g. {"02691156":"0_"}.',
     )
-    parser.add_argument('--max-gen-meshes', type=int, default=None)
+    parser.add_argument(
+        '--max-gen-meshes',
+        type=int,
+        default=None,
+        help='Maximum generated meshes to evaluate. Defaults to the number of valid GT test/val meshes.',
+    )
     parser.add_argument('--max-face-length', type=int, default=800)
     parser.add_argument('--batch-size', type=int, default=128)
     parser.add_argument('--num-points', type=int, default=2048)
+    parser.add_argument('--num-runs', type=int, default=1, help='Repeat evaluation N times and report mean/std metrics.')
     parser.add_argument(
         '--output-json',
         type=str,
@@ -565,6 +600,9 @@ def parse_args():
 
 def main():
     args = parse_args()
+    if args.num_runs < 1:
+        raise ValueError('--num-runs must be >= 1')
+
     prefix_map = dict(DEFAULT_MESHXL_PREFIX_MAP)
     if args.prefix_map is not None:
         prefix_map.update(json.loads(args.prefix_map))
@@ -572,38 +610,45 @@ def main():
     results = {}
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    for synset_id in args.categories:
+    for category in args.categories:
+        synset_id = resolve_category(category)
         category_name = DEFAULT_CATEGORY_MAP.get(synset_id, synset_id)
         print(f'\n[INFO] Evaluating {category_name} ({synset_id})')
         prefix = prefix_map.get(synset_id)
         if prefix is None:
-            print(f'[WARN] No MeshXL prefix mapping found for {synset_id}, skipping')
-            continue
+            print(f'[INFO] No MeshXL prefix mapping found for {synset_id}; loading all .obj files under gen-root')
+
+        gt_meshes, gt_uids, dataset_dir = load_gt_meshes(
+            args.data_root,
+            synset_id,
+            max_meshes=args.max_gen_meshes,
+            max_face_length=args.max_face_length,
+        )
+        max_gen_meshes = args.max_gen_meshes or len(gt_meshes)
 
         try:
             gen_meshes, gen_paths = load_generated_meshes(
                 args.gen_root,
-                max_meshes=args.max_gen_meshes,
+                max_meshes=max_gen_meshes,
                 prefix=prefix,
             )
         except FileNotFoundError as exc:
             print(f'[WARN] {exc}; skipping {synset_id}')
             continue
 
-        print(f'[INFO] Loaded {len(gen_meshes)} generated meshes from {args.gen_root} for prefix {prefix}')
-        gt_meshes, gt_uids, dataset_dir = load_gt_meshes(
-            args.data_root,
-            synset_id,
-            max_meshes=len(gen_meshes),
-            max_face_length=args.max_face_length,
-        )
-        metrics = evaluate_mesh_sets(
-            gen_meshes,
-            gt_meshes,
-            batch_size=args.batch_size,
-            num_points=args.num_points,
-            device=device,
-        )
+        print(f'[INFO] Loaded {len(gen_meshes)} generated meshes from {args.gen_root}' + (f' for prefix {prefix}' if prefix is not None else ''))
+        run_metrics = []
+        for run_idx in range(args.num_runs):
+            if args.num_runs > 1:
+                print(f'\n[INFO] Evaluation run {run_idx + 1}/{args.num_runs}')
+            run_metrics.append(evaluate_mesh_sets(
+                gen_meshes,
+                gt_meshes,
+                batch_size=args.batch_size,
+                num_points=args.num_points,
+                device=device,
+            ))
+        metrics = run_metrics[0] if args.num_runs == 1 else average_metric_runs(run_metrics)
         metrics.update({
             'category_name': category_name,
             'synset_id': synset_id,

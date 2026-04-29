@@ -33,7 +33,7 @@ train:
   max_steps: 100000
   global_batch_size: 32 # 4*7
   output_dir: 'output'
-  exp_name: '120m-ot-v-bench' # <---- experiment name, set as you like
+  exp_name: 'base-120m-ot-x1-bench' # <---- experiment name, set as you like
   log_every: 100
   ckpt_every: 5000 # 5000 
   
@@ -48,7 +48,7 @@ transport:
   path_type: Linear
   prediction: velocity
   use_lognorm: true
-  use_jit: false
+  use_jit: true
 
 # recommend to use default settings
 sample:
@@ -58,7 +58,7 @@ sample:
   rtol: 0.0005
   reverse: false
   num_sampling_steps: 50
-  cfg_scale: 1.0 
+  cfg_scale: 2.0
   
   # recommend to use default settings
   per_proc_batch_size: 4

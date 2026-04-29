@@ -90,9 +90,9 @@ def build_dataloaders(train_config, accelerator):
         batch_size=batch_size_per_gpu,
         shuffle=True,
         num_workers=train_config['data']['num_workers'],
-        pin_memory=True,
+        pin_memory=True, # TODO: check if augmentations is in dataset
         drop_last=True,
-        collate_fn=partial(collate_fn, max_seq_length=800),
+        collate_fn=partial(collate_fn, max_seq_length=800), # TODO: prefetch
     )
 
     valid_loader = None

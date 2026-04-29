@@ -165,7 +165,7 @@ def do_sample_simple(
     if timestep_shift is None:
         timestep_shift = train_config['sample'].get('timestep_shift', 0.0)
     if cfg_scale is None:
-        cfg_scale = train_config['sample'].get('cfg_scale', 1.0)
+        cfg_scale = train_config['sample'].get('cfg_scale', 2.0)
     was_training = model.training
     model.eval()
     
@@ -282,7 +282,7 @@ def do_sample(train_config, accelerator, ckpt_path=None, cfg_scale=None, model=N
     del vae
 
     device = accelerator.device
-    cfg_scale = train_config['sample'].get('cfg_scale', 1.0)
+    cfg_scale = train_config['sample'].get('cfg_scale', 2.0)
     timestep_shift = train_config['sample'].get('timestep_shift', 0.0)
 
     ckpt_path = train_config.get('ckpt_path', None)

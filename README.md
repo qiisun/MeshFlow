@@ -48,12 +48,17 @@ bash tools/run_train.sh configs/overfit/base-120m-ot-x1.yaml --train.global_batc
 
 ```bash
 python inference.py --config configs/overfit/base-120m-x1.yaml --ckpt_path=output/overfit-base-120m-x1/checkpoints/00075000.pt --use_qk_norm=false --demo # --demo means only generate 8 samples
+
+CUDA_VISIBLE_DEVICES=6, python inference.py --config configs/snet/base-120m-ot-v-bench.yaml --ckpt_path=output/120m-ot-v-bench/checkpoints/00500000.pt --num_samples 1000 # then raw mesh will be at output/120m-ot-v-bench/infer_00500000
 ```
 
-### 4) Generation Metrics Evaluation [TODO]
+### 4) Generation Metrics Evaluation
 
 ```bash
-python tools/point_evaluation.py --help
+CUDA_VISIBLE_DEVICES=6 python tools/point_evaluation.py \
+  --gen-root output/120m-ot-v-bench/infer_00500000 \
+  --category bench \
+  --num-runs 5
 ```
 
 ## Dataset Preparation
@@ -160,9 +165,9 @@ Please cite our work if you find it useful:
 
 ```latex
 @inproceedings{meshflow,
- title={},
+ title={MeshFlow: Mesh Generation with Equivariant Flow Matching},
  author={},
- journal={},
+ booktitle={SIGGRAPH},
  year={2026}
 }
 ```

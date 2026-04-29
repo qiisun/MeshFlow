@@ -269,7 +269,7 @@ def main():
 
     train_dataset, train_loader = build_train_loader_for_overfit(train_config, args.batch_size)
 
-    cfg_scale = train_config.get('sample', {}).get('cfg_scale', 1.0)
+    cfg_scale = train_config.get('sample', {}).get('cfg_scale', 2.0)
     timestep_shift = train_config.get('sample', {}).get('timestep_shift', 0.0)
     token_std = train_config.get('data', {}).get('token_std', 0.3762)
 

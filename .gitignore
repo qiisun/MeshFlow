@@ -6,3 +6,5 @@ output/
 tools/run_train*
 .vscode/
 logs/
+tools/launch_check.sh
+nohup*

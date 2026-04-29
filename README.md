@@ -1,27 +1,27 @@
 # MeshFlow: Mesh Generation with Equivariant Flow Matching
 
-This repository is trimmed to a minimal training/inference/evaluation pipeline for unconditional mesh generation.
+This repository contains a PyTorch implementation of **MeshFlow: Mesh Generation with Equivariant Flow Matching**.
 
-## Kept Entry Points
+Qi Sun, [Kiyohiro Nakayama](https://georgenakayama.github.io/), [Jing Nathan Yan](https://nathanyanjing.github.io/), [Qixing Huang](https://www.cs.utexas.edu/~huangqx/), [Alexander Rush](https://rush-nlp.com/), [Leonidas Guibas](https://geometry.stanford.edu/member/guibas/), [Gordon Wetzstein](https://stanford.edu/~gordonwz/), [Jing Liao](https://scholar.google.com/citations?user=3s9f9VIAAAAJ&hl=zh-CN), and [Guandao Yang](https://www.guandaoyang.com/)
+
+![MeshFlow teaser](assets/teaser-meshflow.gif)
+
+## Introduction
+
+MeshFlow is an unconditional mesh generation pipeline based on equivariant flow matching. This repository is trimmed to the core training, inference, and evaluation code used for mesh generation experiments.
+
+Main entry points:
 
 - Training: `train.py`
 - Inference: `inference.py`
 - Train launcher: `tools/run_train.sh`
-- Chamfer curve eval (for overfitting experiments): `tools/plot_chamfer_vs_steps.py`
-- Generation metrics (for ShapeNet category, e.g. 1-NNA): `tools/point_evaluation.py`
-- flow matching core: `flow_matching.py`
+- Chamfer curve evaluation: `tools/plot_chamfer_vs_steps.py`
+- ShapeNet generation metrics: `tools/point_evaluation.py`
+- Flow matching core: `flow_matching.py`
 
+## Dependencies
 
-## Minimal Config Set
-
-- `configs/base_jit.yaml`
-- `configs/overfit/base-120m-ot.yaml`
-- `configs/overfit/base-120m-ot-x1.yaml`
-- `configs/overfit/base-120m-x1.yaml`
-
-## Quick Start
-
-### 1) Environment
+The code is tested with Python 3.10, PyTorch 2.4.1, CUDA 12.4, and FlashAttention 2.6.3.
 
 ```bash
 conda create -n mflow python=3.10 -y
@@ -39,38 +39,16 @@ python setup.py install
 cd ../..
 ```
 
-### 2) Train
-```bash
-bash tools/run_train.sh configs/overfit/base-120m-ot-x1.yaml --train.global_batch_size=4
-```
+## Dataset
 
-### 3) Inference (standalone)
-
-```bash
-python inference.py --config configs/overfit/base-120m-x1.yaml --ckpt_path=output/overfit-base-120m-x1/checkpoints/00075000.pt --use_qk_norm=false --demo # --demo means only generate 8 samples
-
-CUDA_VISIBLE_DEVICES=6, python inference.py --config configs/snet/base-120m-ot-v-bench.yaml --ckpt_path=output/120m-ot-v-bench/checkpoints/00500000.pt --num_samples 1000 # then raw mesh will be at output/120m-ot-v-bench/infer_00500000
-```
-
-### 4) Generation Metrics Evaluation
-
-```bash
-CUDA_VISIBLE_DEVICES=6 python tools/point_evaluation.py \
-  --gen-root output/120m-ot-v-bench/infer_00500000 \
-  --category bench \
-  --num-runs 5
-```
-
-## Dataset Preparation
-
-Run all commands from repository root.
+Run all dataset commands from the repository root.
 
 ```bash
 mkdir -p downloaded_data
 cd downloaded_data
 ```
 
-### Required for overfit configs
+Required for overfit configs:
 
 ```bash
 wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/ss_overfit.tar.gz
@@ -78,7 +56,7 @@ tar xf ss_overfit.tar.gz
 rm ss_overfit.tar.gz
 ```
 
-### Optional datasets for other experiments
+Optional datasets for ShapeNet and larger experiments:
 
 ```bash
 # sketchfab
@@ -86,7 +64,7 @@ wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/sketchfa
 tar xf sketchfab.tar.gz
 rm sketchfab.tar.gz
 
-# shapenet (main)
+# shapenet main split
 wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/shapenet.tar.gz
 tar xf shapenet.tar.gz
 rm shapenet.tar.gz
@@ -117,13 +95,13 @@ mv objaverse_occ_v5_ids objaverse/
 mv split objaverse/
 ```
 
-Back to repository root:
+Back to the repository root:
 
 ```bash
 cd ..
 ```
 
-Expected structure for overfit training:
+Expected overfit dataset layout:
 
 ```text
 downloaded_data/ss_overfit/
@@ -134,40 +112,106 @@ downloaded_data/ss_overfit/
     *.npz
 ```
 
-## Train ShapeNet Category
+## Training
+
+Overfit example:
+
+```bash
+bash tools/run_train.sh configs/overfit/base-120m-ot-x1.yaml --train.global_batch_size=4
+```
+
+ShapeNet category example:
 
 ```bash
 bash tools/run_train.sh configs/snet/base-120m-x1-bench.yaml
 ```
 
+Long-running ShapeNet bench example with command-line overrides:
 
-## Structure
+```bash
+accelerate launch \
+  --num_processes 6 \
+  --mixed_precision bf16 \
+  --gpu_ids 0,1,2,3,4,5 \
+  train.py \
+  --config configs/snet/base-120m-ot-v-bench.yaml \
+  train.global_batch_size=72 \
+  train.max_steps=1000000 \
+  train.ckpt_every=100000
+```
+
+Training automatically saves checkpoints under `output/<exp_name>/checkpoints`. At the end of training, final inference is enabled by default and generates `train.final_num_samples` meshes, defaulting to 1000.
+
+## Inference
+
+Standalone inference example:
+
+```bash
+python inference.py \
+  --config configs/overfit/base-120m-x1.yaml \
+  --ckpt_path output/overfit-base-120m-x1/checkpoints/00075000.pt \
+  --demo
+```
+
+ShapeNet bench inference example:
+
+```bash
+CUDA_VISIBLE_DEVICES=6 python inference.py \
+  --config configs/snet/base-120m-ot-v-bench.yaml \
+  --ckpt_path output/120m-ot-v-bench/checkpoints/00500000.pt \
+  sample.num_samples=1000
+```
+
+Generated meshes are saved to `output/<exp_name>/infer_<step>/`. The default CFG scale is 2.0 and can be overridden with `sample.cfg_scale=<value>`.
+
+## Evaluation
+
+ShapeNet generation metrics can be computed from generated `.obj` meshes:
+
+```bash
+CUDA_VISIBLE_DEVICES=6 python tools/point_evaluation.py \
+  --gen-root output/120m-ot-v-bench/infer_00500000 \
+  --category bench
+```
+
+Run repeated evaluations and report mean/std metrics:
+
+```bash
+CUDA_VISIBLE_DEVICES=6 python tools/point_evaluation.py \
+  --gen-root output/120m-ot-v-bench/infer_00500000 \
+  --category bench \
+  --num-runs 5
+```
+
+Supported category names include `bench`, `bottle`, `chair`, `display`, `monitor`, `lamp`, `loudspeaker`, `speaker`, and `table`. If `--max-gen-meshes` is omitted, evaluation defaults to the number of valid test meshes for the requested category.
+
+## Repository Structure
 
 ```text
-train_pixel.py
-inference_dit.py
-transport_simple.py
 configs/
-  base_jit.yaml
   overfit/
+  snet/
+datasets/
+models/
 tools/
   run_train.sh
   plot_chamfer_vs_steps.py
   point_evaluation.py
-models/
-datasets/
 utils/
+flow_matching.py
+inference.py
+train.py
 ```
 
+## Cite
 
-## Citations
 Please cite our work if you find it useful:
 
-```latex
+```bibtex
 @inproceedings{meshflow,
- title={MeshFlow: Mesh Generation with Equivariant Flow Matching},
- author={},
- booktitle={SIGGRAPH},
- year={2026}
+  title     = {MeshFlow: Mesh Generation with Equivariant Flow Matching},
+  author    = {Sun, Qi and Nakayama, Kiyohiro and Yan, Jing Nathan and Huang, Qixing and Rush, Alexander and Guibas, Leonidas and Wetzstein, Gordon and Liao, Jing and Yang, Guandao},
+  booktitle = {SIGGRAPH},
+  year      = {2026}
 }
 ```

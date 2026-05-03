@@ -7,7 +7,7 @@
 #
 # Usage:
 #   bash tacc/upload_ckpts.sh <exp_dir> [<exp_dir> ...]
-#   REPO=qsun2001/omg PREFIX=v1 bash tacc/upload_ckpts.sh output/run_a output/run_b
+#   REPO=guandao/meshflow_checkpoints PREFIX=v1 bash tacc/upload_ckpts.sh output/run_a output/run_b
 
 set -euo pipefail
 
@@ -18,7 +18,7 @@ if [ $# -lt 1 ]; then
 fi
 
 : "${HF_TOKEN:?HF_TOKEN is not set. export HF_TOKEN=hf_... first.}"
-REPO="${REPO:-qsun2001/omg}"
+REPO="${REPO:-guandao/meshflow_checkpoints}"
 PREFIX="${PREFIX:-v1}"
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"

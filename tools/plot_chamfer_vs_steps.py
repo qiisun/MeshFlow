@@ -2,6 +2,11 @@ import argparse
 import csv
 import json
 import os
+import sys
+
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -13,7 +18,7 @@ from tqdm import tqdm
 from datasets.mesh_dataset import ObjaverseDataset, collate_fn
 from datasets.mesh_dataset import float_to_index_np, index_to_float_np
 from models.equidit import DiT
-from transport_simple import Sampler, create_transport
+from flow_matching import create_transport
 
 try:
     from utils.chamfer3D.dist_chamfer_3D import chamfer_3DDist
@@ -68,6 +73,7 @@ def build_model_from_config(train_config):
         face_cond=train_config['model']['face_cond'],
         face_bin=train_config['model']['face_bin'],
         use_rmsnorm=train_config['model'].get('use_rmsnorm', False),
+        use_qknorm=train_config['model'].get('use_qknorm', False),
     )
 
 
@@ -141,6 +147,30 @@ def sample_point_cloud(mesh: trimesh.Trimesh, num_samples: int = 4096):
         return mesh.vertices[indices]
 
 
+def make_sample_fn(transport, num_sampling_steps, timestep_shift):
+    transport.method = 'euler'
+    transport.atol = 1e-6
+    transport.rtol = 1e-3
+
+    def sample_fn(z, model_fn, **model_kwargs):
+        wrapped_model = model_fn
+        if timestep_shift > 0:
+            def wrapped_model(x, t_scalar, **kwargs):
+                shifted_t = transport.path.compute_time_shift(t_scalar, timestep_shift=timestep_shift)
+                return model_fn(x, shifted_t, **kwargs)
+
+        return transport.sample(
+            z,
+            wrapped_model,
+            t0=0.0,
+            t1=1.0,
+            num_steps=num_sampling_steps,
+            model_kwargs=model_kwargs,
+        )
+
+    return sample_fn
+
+
 @torch.no_grad()
 def evaluate_step(
     model,
@@ -155,15 +185,7 @@ def evaluate_step(
     num_point_samples,
     print_range,
 ):
-    sampler = Sampler(transport)
-    sample_fn = sampler.sample_ode(
-        sampling_method='euler',
-        num_steps=num_sampling_steps,
-        atol=1e-6,
-        rtol=1e-3,
-        reverse=False,
-        timestep_shift=timestep_shift,
-    )
+    sample_fn = make_sample_fn(transport, num_sampling_steps, timestep_shift)
 
     use_chamfer3d = CHAMFER3D_AVAILABLE
     chamfer3d = chamfer_3DDist() if use_chamfer3d else None

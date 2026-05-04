@@ -31,6 +31,7 @@ kiui==0.2.20
 lazy_loader==0.4
 Markdown==3.10
 MarkupSafe
+matplotlib
 megfile==5.0.2
 mkl-service==2.4.0
 mkl_fft

@@ -43,9 +43,14 @@ echo "Num processes : $NUM_PROCESSES"
 # task. Single-quoted bash -c was unreliable on Vista — env vars sometimes
 # failed to propagate into the srun subshell, leaving accelerate to fall back
 # to single-process mode (each node ran standalone with world_size=1).
+# --multi_gpu forces distributed_type=MULTI_GPU, overriding any
+# distributed_type: NO in ~/.cache/huggingface/accelerate/default_config.yaml.
+# This lets the default config remain single-GPU friendly while multi-node
+# jobs still launch correctly.
 srun --nodes=$NUM_NODES --ntasks-per-node=1 --export=ALL bash -c "
-    echo \"[task \$SLURM_NODEID] accelerate launch --num_machines $NUM_NODES --num_processes $NUM_PROCESSES --machine_rank \$SLURM_NODEID --main_process_ip $MASTER_ADDR --main_process_port $MASTER_PORT\"
+    echo \"[task \$SLURM_NODEID] accelerate launch --multi_gpu --num_machines $NUM_NODES --num_processes $NUM_PROCESSES --machine_rank \$SLURM_NODEID --main_process_ip $MASTER_ADDR --main_process_port $MASTER_PORT\"
     accelerate launch \
+        --multi_gpu \
         --num_machines $NUM_NODES \
         --num_processes $NUM_PROCESSES \
         --machine_rank \$SLURM_NODEID \

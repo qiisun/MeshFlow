@@ -38,14 +38,20 @@ echo "Nodes         : $SLURM_JOB_NODELIST"
 echo "Master        : $MASTER_ADDR:$MASTER_PORT"
 echo "Num processes : $NUM_PROCESSES"
 
-srun --nodes=$NUM_NODES --ntasks-per-node=1 bash -c '
+# Expand parent-shell vars (NUM_NODES/PROCESSES, MASTER_ADDR/PORT) up-front via
+# double quotes; defer only $SLURM_NODEID with a backslash since it differs per
+# task. Single-quoted bash -c was unreliable on Vista — env vars sometimes
+# failed to propagate into the srun subshell, leaving accelerate to fall back
+# to single-process mode (each node ran standalone with world_size=1).
+srun --nodes=$NUM_NODES --ntasks-per-node=1 --export=ALL bash -c "
+    echo \"[task \$SLURM_NODEID] accelerate launch --num_machines $NUM_NODES --num_processes $NUM_PROCESSES --machine_rank \$SLURM_NODEID --main_process_ip $MASTER_ADDR --main_process_port $MASTER_PORT\"
     accelerate launch \
         --num_machines $NUM_NODES \
         --num_processes $NUM_PROCESSES \
-        --machine_rank $SLURM_NODEID \
+        --machine_rank \$SLURM_NODEID \
         --main_process_ip $MASTER_ADDR \
         --main_process_port $MASTER_PORT \
         --mixed_precision bf16 \
         train.py --config __CONFIG_PLACEHOLDER__ __OVERRIDES_PLACEHOLDER__
-'
+"
 echo "Job finished at $(date)"

@@ -73,6 +73,16 @@ def build_model_from_config(train_config):
 
 
 def build_dataloaders(train_config, accelerator):
+    num_workers = int(train_config['data'].get('num_workers', 0))
+    persistent_workers = train_config['data'].get('persistent_workers', True)
+    if isinstance(persistent_workers, str):
+        persistent_workers = persistent_workers.lower() in ('true', '1', 'yes', 'on')
+    persistent_workers = bool(persistent_workers) and num_workers > 0
+
+    dataloader_kwargs = dict(persistent_workers=persistent_workers)
+    if num_workers > 0 and train_config['data'].get('prefetch_factor') is not None:
+        dataloader_kwargs['prefetch_factor'] = int(train_config['data']['prefetch_factor'])
+
     dataset = ObjaverseDataset(
         data_pth=train_config['data']['data_path'],
         training=True,
@@ -89,10 +99,11 @@ def build_dataloaders(train_config, accelerator):
         dataset,
         batch_size=batch_size_per_gpu,
         shuffle=True,
-        num_workers=train_config['data']['num_workers'],
+        num_workers=num_workers,
         pin_memory=True, # TODO: check if augmentations is in dataset
         drop_last=True,
         collate_fn=partial(collate_fn, max_seq_length=800), # TODO: prefetch
+        **dataloader_kwargs,
     )
 
     valid_loader = None
@@ -111,10 +122,11 @@ def build_dataloaders(train_config, accelerator):
             valid_dataset,
             batch_size=batch_size_per_gpu,
             shuffle=False,
-            num_workers=train_config['data']['num_workers'],
+            num_workers=num_workers,
             pin_memory=True,
             drop_last=False,
             collate_fn=partial(collate_fn, max_seq_length=800),
+            **dataloader_kwargs,
         )
 
         valid_size = len(valid_dataset)

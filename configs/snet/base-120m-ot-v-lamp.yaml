@@ -30,12 +30,12 @@ model:
 
 # recommend to use default settings
 train:
-  max_steps: 100000
+  max_steps: 1000000
   global_batch_size: 32 # 4*7
   output_dir: 'output'
   exp_name: '120m-ot-v-lamp' # <---- experiment name, set as you like
   log_every: 100
-  ckpt_every: 5000 # 5000 
+  ckpt_every: 50000 # 50k
   
 optimizer:
   max_grad_norm: 2.0

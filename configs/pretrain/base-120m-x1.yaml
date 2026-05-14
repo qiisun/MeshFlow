@@ -36,14 +36,14 @@ model:
 
 # recommend to use default settings
 train:
-  max_steps: 10000000 # 10m
+  max_steps: 1000000 # 1m
   global_batch_size: 32 # 6*24
   global_seed: 0
   output_dir: 'output'
   exp_name: 'pretrain' # <---- experiment name, set as you like
   ckpt: null
   log_every: 100
-  ckpt_every: 100000 # 100k 
+  ckpt_every: 50000 # 50k
   use_repa: False
   repa_idx: 3
   

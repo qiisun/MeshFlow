@@ -31,12 +31,12 @@ model:
 
 # recommend to use default settings
 train:
-  max_steps: 100000
+  max_steps: 1000000
   global_batch_size: 32 # 4*7
   output_dir: 'output'
   exp_name: 'overfit-base-500m-ot-x1-simplified' # <---- experiment name, set as you like
   log_every: 100
-  ckpt_every: 5000
+  ckpt_every: 50000
   
 optimizer:
   max_grad_norm: 2.0

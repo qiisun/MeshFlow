@@ -1,6 +1,6 @@
 # MeshFlow: Mesh Generation with Equivariant Flow Matching
 
-This repository contains a PyTorch implementation of **MeshFlow: Mesh Generation with Equivariant Flow Matching**.
+This repository contains a PyTorch implementation of **MeshFlow: Mesh Generation with Equivariant Flow Matching** (SIGGRAPH 2026).
 
 Qi Sun, [Kiyohiro Nakayama](https://georgenakayama.github.io/), [Jing Nathan Yan](https://nathanyanjing.github.io/), [Qixing Huang](https://www.cs.utexas.edu/~huangqx/), [Alexander Rush](https://rush-nlp.com/), [Leonidas Guibas](https://geometry.stanford.edu/member/guibas/), [Gordon Wetzstein](https://stanford.edu/~gordonwz/), [Jing Liao](https://scholar.google.com/citations?user=3s9f9VIAAAAJ&hl=zh-CN), and [Guandao Yang](https://www.guandaoyang.com/)
 
@@ -137,10 +137,10 @@ accelerate launch \
   --config configs/snet/base-120m-ot-v-bench.yaml \
   train.global_batch_size=72 \
   train.max_steps=1000000 \
-  train.ckpt_every=100000
+  train.ckpt_every=50000
 ```
 
-Training automatically saves checkpoints under `output/<exp_name>/checkpoints`. At the end of training, final inference is enabled by default and generates `train.final_num_samples` meshes, defaulting to 1000.
+Training automatically saves checkpoints under `output/<exp_name>/checkpoints` and keeps the latest 3 checkpoints by default. At the end of training, final inference is enabled by default and generates `train.final_num_samples` meshes, defaulting to 1000.
 
 ## Inference
 

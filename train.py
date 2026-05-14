@@ -180,6 +180,11 @@ def do_train(train_config, accelerator):
     ema.eval()
     
     train_config['train']['resume'] = train_config['train'].get('resume', False)
+    train_config['train']['keep_last_ckpts'] = int(train_config['train'].get('keep_last_ckpts', 3))
+    if train_config['train']['keep_last_ckpts'] < 1:
+        raise ValueError("train.keep_last_ckpts must be >= 1")
+    if accelerator.is_main_process:
+        logger.info(f"Keeping last {train_config['train']['keep_last_ckpts']} checkpoints")
     train_steps = 0
 
     if train_config['train']['resume']:
@@ -260,8 +265,8 @@ def do_train(train_config, accelerator):
                             }
                             checkpoint_path = f"{checkpoint_dir}/{train_steps:08d}.pt"
                             torch.save(checkpoint, checkpoint_path)
-                            if accelerator.is_main_process:
-                                logger.info(f"Saved checkpoint to {checkpoint_path}")
+                            logger.info(f"Saved checkpoint to {checkpoint_path}")
+                            prune_old_checkpoints(checkpoint_dir, train_config['train']['keep_last_ckpts'], logger)
                         accelerator.wait_for_everyone()
 
                         if 'valid_path' in train_config['data']:
@@ -304,6 +309,7 @@ def do_train(train_config, accelerator):
                     "config": train_config,
                 }, final_ckpt_path)
                 logger.info(f"Saved final checkpoint to {final_ckpt_path}")
+            prune_old_checkpoints(checkpoint_dir, train_config['train']['keep_last_ckpts'], logger)
         accelerator.wait_for_everyone()
 
         if accelerator.is_main_process:
@@ -350,6 +356,26 @@ def update_ema(ema_model, model, decay=0.9999):
 def requires_grad(model, flag=True):
     for p in model.parameters():
         p.requires_grad = flag
+
+def prune_old_checkpoints(checkpoint_dir, keep_last, logger=None):
+    if keep_last is None or keep_last < 1:
+        return
+
+    checkpoint_files = []
+    for checkpoint_path in glob(f"{checkpoint_dir}/*.pt"):
+        checkpoint_name = os.path.splitext(os.path.basename(checkpoint_path))[0]
+        if checkpoint_name.isdigit():
+            checkpoint_files.append((int(checkpoint_name), checkpoint_path))
+
+    checkpoint_files.sort()
+    for _, checkpoint_path in checkpoint_files[:-keep_last]:
+        try:
+            os.remove(checkpoint_path)
+            if logger is not None:
+                logger.info(f"Removed old checkpoint {checkpoint_path}")
+        except OSError as exc:
+            if logger is not None:
+                logger.warning(f"Failed to remove old checkpoint {checkpoint_path}: {exc}")
 
 def load_config(config_path):
     with open(config_path, "r") as file:

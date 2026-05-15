@@ -164,6 +164,29 @@ CUDA_VISIBLE_DEVICES=6 python inference.py \
 
 Generated meshes are saved to `output/<exp_name>/infer_<step>/`. The default CFG scale is 2.0 and can be overridden with `sample.cfg_scale=<value>`.
 
+## Gradio Demo
+
+Launch an interactive web demo for category-conditioned single-mesh generation and post-processing (merge vertices + hole filling):
+
+```bash
+python gradio_demo.py \
+  --config configs/snet/base-120m-ot-v-bench.yaml \
+  --port 7860
+```
+
+Then open `http://127.0.0.1:7860` in your browser.
+
+In the UI you can control:
+
+- category mode with 4 options: `bench`, `chair`, `lamp`, `table`
+- one dedicated 1M checkpoint path for each category (auto-switched by category)
+- random seed, CFG scale, sampling steps, face count
+- merge exact duplicate vertices
+- merge close vertices with a distance tolerance
+- fill mesh holes with an optional max-hole-size limit
+
+Each run exports both `raw.obj` and `post.obj` under `output/gradio_demo/<timestamp>/`.
+
 ## Evaluation
 
 ShapeNet generation metrics can be computed from generated `.obj` meshes:

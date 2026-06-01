@@ -166,6 +166,7 @@ def create_black_wire_material(body_color, wire_color, wire_thickness):
 def setup_scene(args):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     scene = bpy.context.scene
+    configure_color_management(scene)
     scene.render.engine = "CYCLES"
     scene.cycles.samples = args.samples
     scene.render.resolution_x = args.resolution
@@ -180,7 +181,17 @@ def setup_scene(args):
     scene.world.use_nodes = True
     background = scene.world.node_tree.nodes["Background"]
     background.inputs["Color"].default_value = args.background_color
-    background.inputs["Strength"].default_value = 0.2
+    background.inputs["Strength"].default_value = 1.0
+
+
+def configure_color_management(scene):
+    try:
+        scene.view_settings.view_transform = "Standard"
+        scene.view_settings.look = "None"
+        scene.view_settings.exposure = 0.0
+        scene.view_settings.gamma = 1.0
+    except Exception:
+        pass
 
 
 def clear_render_meshes():
@@ -347,6 +358,7 @@ def configure_video_encoding(scene, output_path, fps):
 def encode_video(frame_paths, output_path, fps, resolution, background_color):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     scene = bpy.context.scene
+    configure_color_management(scene)
     scene.render.resolution_x = resolution
     scene.render.resolution_y = resolution
     scene.frame_start = 1

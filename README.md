@@ -1,5 +1,44 @@
 # MeshFlow: Mesh Generation with Equivariant Flow Matching
 
+## Render Quick Start
+
+Render a folder of `.obj`/`.ply` meshes to PNG previews for visual picking:
+
+```bash
+blender -b -P tools/render_mesh_folder.py -- \
+  --input output/render-pipeline-denoise/infer_01000000_denoise \
+  --output_dir output/render-pipeline-denoise/picks \
+  --pattern "*.obj,*.ply" \
+  --resolution 512 \
+  --samples 32
+```
+
+This writes one PNG per mesh plus `manifest.csv` and `index.html` in the output directory.
+
+Create a white-background denoising video from an inference trajectory:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=$PWD conda run --no-capture-output -n mflow python tools/save_denoising_trajectory.py \
+  --config configs/snet/base-120m-ot-v-bench.yaml \
+  --ckpt_path output/120m-ot-v-bench/checkpoints/01000000.pt \
+  --output output/render-pipeline-denoise/infer_01000000_denoise \
+  --num_steps 32 \
+  --stride 2 \
+  --cfg_scale 2.0 \
+  --clean
+
+blender -b -P tools/render_video.py -- \
+  --input output/render-pipeline-denoise/infer_01000000_denoise \
+  --pattern "*.obj" \
+  --output output/render-pipeline-denoise/render_denoising_white.mp4 \
+  --frames_dir output/render-pipeline-denoise/render_denoising_white_frames \
+  --transparent_frames \
+  --background_color 1,1,1 \
+  --denoise_hold_frames 3 \
+  --hold_final_frames 8 \
+  --rotate_frames 36
+```
+
 This repository contains a PyTorch implementation of **MeshFlow: Mesh Generation with Equivariant Flow Matching** (SIGGRAPH 2026).
 
 Qi Sun, [Kiyohiro Nakayama](https://georgenakayama.github.io/), [Jing Nathan Yan](https://nathanyanjing.github.io/), [Qixing Huang](https://www.cs.utexas.edu/~huangqx/), [Alexander Rush](https://rush-nlp.com/), [Leonidas Guibas](https://geometry.stanford.edu/member/guibas/), [Gordon Wetzstein](https://stanford.edu/~gordonwz/), [Jing Liao](https://scholar.google.com/citations?user=3s9f9VIAAAAJ&hl=zh-CN), and [Guandao Yang](https://www.guandaoyang.com/)

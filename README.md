@@ -23,6 +23,20 @@ CUDA_VISIBLE_DEVICES=0 PYTHONPATH=$PWD conda run --no-capture-output -n mflow py
   --ckpt_path output/120m-ot-v-bench/checkpoints/01000000.pt \
   --output output/render-pipeline-denoise/infer_01000000_denoise \
   --num_steps 32 \
+
+如果需要黑色背景，可以直接把 `--background_color` 设置为 `0,0,0`（或不使用 `--transparent_frames`）：
+
+```bash
+blender -b -P tools/render_video.py -- \
+  --input output/render-pipeline-denoise/infer_01000000_denoise \
+  --pattern "*.obj" \
+  --output output/render-pipeline-denoise/render_denoising_black.mp4 \
+  --frames_dir output/render-pipeline-denoise/render_denoising_black_frames \
+  --background_color 0,0,0 \
+  --denoise_hold_frames 3 \
+  --hold_final_frames 8 \
+  --rotate_frames 36
+```
   --stride 2 \
   --cfg_scale 2.0 \
   --clean

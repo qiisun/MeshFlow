@@ -22,6 +22,8 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from render_video import (  # noqa: E402
+    DEFAULT_BODY_COLOR,
+    DEFAULT_WIRE_THICKNESS,
     blender_argv,
     clear_render_meshes,
     compute_camera_dimension,
@@ -76,10 +78,10 @@ def parse_args():
     parser.set_defaults(normalize_each_mesh=True)
 
     parser.add_argument("--no_axis_fix", action="store_true", help="Disable x=90 degree rotation used by the MeshFlow render style")
-    parser.add_argument("--body_color", type=parse_rgb, default=parse_rgb("0.8,0.8,0.8"))
+    parser.add_argument("--body_color", type=parse_rgb, default=parse_rgb(DEFAULT_BODY_COLOR))
     parser.add_argument("--wire_color", type=parse_rgb, default=parse_rgb("0.0,0.0,0.0"))
     parser.add_argument("--background_color", type=parse_rgb, default=parse_rgb("1.0,1.0,1.0"))
-    parser.add_argument("--wire_thickness", type=float, default=0.01)
+    parser.add_argument("--wire_thickness", type=float, default=DEFAULT_WIRE_THICKNESS)
     parser.add_argument("--transparent_frames", action="store_true", help="Render PNGs with alpha")
     return parser.parse_args(blender_argv())
 

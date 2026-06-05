@@ -25,6 +25,11 @@ import mathutils
 
 
 SUPPORTED_MESH_EXTENSIONS = {".obj", ".ply", ".stl", ".glb", ".gltf"}
+DEFAULT_BODY_COLOR = "0.9,0.9,0.9"
+DEFAULT_WIRE_THICKNESS = 0.018
+BODY_EMISSION_STRENGTH = 0.25
+WORLD_BACKGROUND_STRENGTH = 1.25
+CAMERA_LIGHT_ENERGY = 1000.0
 
 
 def blender_argv():
@@ -81,10 +86,10 @@ def parse_args():
     parser.set_defaults(normalize_each_frame=True)
 
     parser.add_argument("--no_axis_fix", action="store_true", help="Disable x=90 degree rotation used by the MeshFlow render style")
-    parser.add_argument("--body_color", type=parse_rgb, default=parse_rgb("0.8,0.8,0.8"))
+    parser.add_argument("--body_color", type=parse_rgb, default=parse_rgb(DEFAULT_BODY_COLOR))
     parser.add_argument("--wire_color", type=parse_rgb, default=parse_rgb("0.0,0.0,0.0"))
     parser.add_argument("--background_color", type=parse_rgb, default=parse_rgb("1.0,1.0,1.0"))
-    parser.add_argument("--wire_thickness", type=float, default=0.01)
+    parser.add_argument("--wire_thickness", type=float, default=DEFAULT_WIRE_THICKNESS)
     parser.add_argument("--transparent_frames", action="store_true", help="Render intermediate PNG frames with alpha")
     return parser.parse_args(blender_argv())
 
@@ -136,29 +141,38 @@ def create_black_wire_material(body_color, wire_color, wire_thickness):
     nodes.clear()
 
     output = nodes.new("ShaderNodeOutputMaterial")
-    output.location = (400, 0)
+    output.location = (600, 0)
     mix = nodes.new("ShaderNodeMixShader")
-    mix.location = (200, 0)
+    mix.location = (400, 0)
+    body_add = nodes.new("ShaderNodeAddShader")
+    body_add.location = (200, 0)
 
     bsdf = nodes.new("ShaderNodeBsdfPrincipled")
-    bsdf.location = (0, 0)
+    bsdf.location = (0, 100)
     bsdf.inputs["Base Color"].default_value = body_color
     bsdf.inputs["Roughness"].default_value = 0.5
     set_node_input(bsdf, ["Specular IOR Level", "Specular"], 0.2)
 
-    emission = nodes.new("ShaderNodeEmission")
-    emission.location = (0, -200)
-    emission.inputs["Color"].default_value = wire_color
-    emission.inputs["Strength"].default_value = 1.0
+    body_emission = nodes.new("ShaderNodeEmission")
+    body_emission.location = (0, -80)
+    body_emission.inputs["Color"].default_value = body_color
+    body_emission.inputs["Strength"].default_value = BODY_EMISSION_STRENGTH
+
+    wire_emission = nodes.new("ShaderNodeEmission")
+    wire_emission.location = (200, -220)
+    wire_emission.inputs["Color"].default_value = wire_color
+    wire_emission.inputs["Strength"].default_value = 1.0
 
     wire = nodes.new("ShaderNodeWireframe")
     wire.location = (-200, 100)
     wire.inputs["Size"].default_value = wire_thickness
     wire.use_pixel_size = False
 
+    links.new(bsdf.outputs["BSDF"], body_add.inputs[0])
+    links.new(body_emission.outputs["Emission"], body_add.inputs[1])
     links.new(wire.outputs["Fac"], mix.inputs["Fac"])
-    links.new(bsdf.outputs["BSDF"], mix.inputs[1])
-    links.new(emission.outputs["Emission"], mix.inputs[2])
+    links.new(body_add.outputs["Shader"], mix.inputs[1])
+    links.new(wire_emission.outputs["Emission"], mix.inputs[2])
     links.new(mix.outputs["Shader"], output.inputs["Surface"])
     return mat
 
@@ -181,7 +195,7 @@ def setup_scene(args):
     scene.world.use_nodes = True
     background = scene.world.node_tree.nodes["Background"]
     background.inputs["Color"].default_value = args.background_color
-    background.inputs["Strength"].default_value = 1.0
+    background.inputs["Strength"].default_value = WORLD_BACKGROUND_STRENGTH
 
 
 def configure_color_management(scene):
@@ -312,7 +326,7 @@ def setup_camera_and_light(max_dimension, args):
     light = bpy.data.objects.new(name="CameraLight", object_data=light_data)
     bpy.context.collection.objects.link(light)
     light.location = camera.location
-    light_data.energy = 800.0
+    light_data.energy = CAMERA_LIGHT_ENERGY
     light_data.shadow_soft_size = 5.0
 
 

@@ -19,6 +19,14 @@ Main entry points:
 - ShapeNet generation metrics: `tools/point_evaluation.py`
 - Flow matching core: `flow_matching.py`
 
+
+## TODO 
+- [x] Training scripts & inference scripts (cleaned version)
+- [x] evaluation scripts
+- [ ] checkpoints of four ShapeNet categories 
+- [ ] gradio demo on huggingface
+- [ ] denoiser code & checkpoint 
+
 ## Dependencies
 
 The code is tested with Python 3.10, PyTorch 2.4.1, CUDA 12.4, and FlashAttention 2.6.3.

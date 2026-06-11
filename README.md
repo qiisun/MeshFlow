@@ -186,56 +186,6 @@ CUDA_VISIBLE_DEVICES=6 python tools/point_evaluation.py \
 
 Supported category names include `bench`, `bottle`, `chair`, `display`, `monitor`, `lamp`, `loudspeaker`, `speaker`, and `table`. If `--max-gen-meshes` is omitted, evaluation defaults to the number of valid test meshes for the requested category.
 
-## Rendering Tools
-
-Render a folder of `.obj`/`.ply` meshes to PNG previews for visual picking:
-
-```bash
-blender -b -P tools/render_mesh_folder.py -- \
-  --input output/render-pipeline-denoise/infer_01000000_denoise \
-  --output_dir output/render-pipeline-denoise/picks \
-  --pattern "*.obj,*.ply" \
-  --resolution 512 \
-  --samples 32
-```
-
-This writes one PNG per mesh plus `manifest.csv` and `index.html` in the output directory.
-
-Create a denoising trajectory and render it as a video:
-
-```bash
-CUDA_VISIBLE_DEVICES=0 PYTHONPATH=$PWD conda run --no-capture-output -n mflow python tools/save_denoising_trajectory.py \
-  --config configs/snet/base-120m-ot-v-bench.yaml \
-  --ckpt_path output/120m-ot-v-bench/checkpoints/01000000.pt \
-  --output output/render-pipeline-denoise/infer_01000000_denoise \
-  --num_steps 32
-
-blender -b -P tools/render_video.py -- \
-  --input output/render-pipeline-denoise/infer_01000000_denoise \
-  --pattern "*.obj" \
-  --output output/render-pipeline-denoise/render_denoising_white.mp4 \
-  --frames_dir output/render-pipeline-denoise/render_denoising_white_frames \
-  --transparent_frames \
-  --background_color 1,1,1 \
-  --denoise_hold_frames 3 \
-  --hold_final_frames 8 \
-  --rotate_frames 36
-```
-
-Use `--background_color 0,0,0` and omit `--transparent_frames` for a black-background render.
-
-## Repository Structure
-
-```text
-configs/        experiment configs
-datasets/       dataset loaders
-models/         model components
-tools/          launch, evaluation, and rendering scripts
-utils/          logging, OT, and Chamfer utilities
-flow_matching.py
-inference.py
-train.py
-```
 
 ## Cite
 

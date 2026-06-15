@@ -24,11 +24,7 @@
 </p>
 </div>
 
-<p align="center">
-  <video src="assets/0609.mp4" controls muted loop playsinline width="100%"></video>
-  <br>
-  <a href="https://www.youtube.com/watch?v=5950VIAiASk">Watch on YouTube</a>
-</p>
+https://github.com/user-attachments/assets/b3c0ef84-76df-4662-b953-5fb0093e4d69
 
 MeshFlow is an unconditional mesh generation pipeline based on equivariant flow matching. This repository contains the core PyTorch training, inference, demo, rendering, and evaluation code used for mesh generation experiments.
 

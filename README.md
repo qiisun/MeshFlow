@@ -2,7 +2,7 @@
 <h2>MeshFlow: Mesh Generation with Equivariant Flow Matching</h2>
 
 <p>
-  <span class="author">Qi Sun</span>,
+  <span class="author"><a href="https://qiisun.github.io/">Qi Sun</a></span>,
   <span class="author"><a href="https://georgenakayama.github.io/">Kiyohiro Nakayama</a></span>,
   <span class="author"><a href="https://nathanyanjing.github.io/">Jing Nathan Yan</a></span>,
   <span class="author"><a href="https://www.cs.utexas.edu/~huangqx/">Qixing Huang</a></span>,

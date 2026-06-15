@@ -15,10 +15,19 @@
 </p>
 
 <p><b>SIGGRAPH 2026</b></p>
+
+<p>
+  <a href="https://qiisun.github.io/MeshFlow//"><img src="https://img.shields.io/badge/Project-Page-4f7cff" alt="Project Page"></a>
+  <a href="https://huggingface.co/datasets/qsun2001/meshflow"><img src="https://img.shields.io/badge/Hugging%20Face-Dataset-ffcc4d" alt="Hugging Face Dataset"></a>
+  <a href="https://github.com/qiisun/MeshFlow2"><img src="https://img.shields.io/badge/GitHub-Code-181717" alt="GitHub Code"></a>
+  <a href="#cite"><img src="https://img.shields.io/badge/Paper-Cite-b31b1b" alt="Paper Citation"></a>
+</p>
 </div>
 
 <p align="center">
-  <img src="assets/teaser-meshflow.gif" alt="MeshFlow teaser" width="100%"/>
+  <video src="assets/0609.mp4" controls muted loop playsinline width="100%"></video>
+  <br>
+  <a href="https://www.youtube.com/watch?v=5950VIAiASk">Watch on YouTube</a>
 </p>
 
 MeshFlow is an unconditional mesh generation pipeline based on equivariant flow matching. This repository contains the core PyTorch training, inference, demo, rendering, and evaluation code used for mesh generation experiments.
@@ -50,7 +59,7 @@ Download datasets under `downloaded_data/`. For a quick overfit run, only `ss_ov
 ```bash
 mkdir -p downloaded_data
 cd downloaded_data
-wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/ss_overfit.tar.gz
+wget https://huggingface.co/datasets/qsun2001/meshflow/resolve/main/obj_data/ss_overfit.tar.gz
 tar xf ss_overfit.tar.gz && rm ss_overfit.tar.gz
 cd ..
 ```
@@ -72,26 +81,26 @@ Run these commands from `downloaded_data/`:
 
 ```bash
 # Sketchfab
-wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/sketchfab.tar.gz
+wget https://huggingface.co/datasets/qsun2001/meshflow/resolve/main/obj_data/sketchfab.tar.gz
 tar xf sketchfab.tar.gz && rm sketchfab.tar.gz
 
 # ShapeNet main split
-wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/shapenet.tar.gz
+wget https://huggingface.co/datasets/qsun2001/meshflow/resolve/main/obj_data/shapenet.tar.gz
 tar xf shapenet.tar.gz && rm shapenet.tar.gz
 
 # ShapeNet class split
-wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/shapenet-cls.tar.gz
+wget https://huggingface.co/datasets/qsun2001/meshflow/resolve/main/obj_data/shapenet-cls.tar.gz
 tar xf shapenet-cls.tar.gz && rm shapenet-cls.tar.gz
 
 # ShapeNet rebuttal splits
-wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/shapenet-rebuttal.tar.gz
+wget https://huggingface.co/datasets/qsun2001/meshflow/resolve/main/obj_data/shapenet-rebuttal.tar.gz
 tar xf shapenet-rebuttal.tar.gz && rm shapenet-rebuttal.tar.gz
-wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/shapenet-rebuttal2.tar.gz
+wget https://huggingface.co/datasets/qsun2001/meshflow/resolve/main/obj_data/shapenet-rebuttal2.tar.gz
 tar xf shapenet-rebuttal2.tar.gz && rm shapenet-rebuttal2.tar.gz
 
 # Objaverse assets
-wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/objaverse_occ_v5_ids.tar.gz
-wget https://huggingface.co/datasets/qsun2001/omg/resolve/main/obj_data/split.tar.gz
+wget https://huggingface.co/datasets/qsun2001/meshflow/resolve/main/obj_data/objaverse_occ_v5_ids.tar.gz
+wget https://huggingface.co/datasets/qsun2001/meshflow/resolve/main/obj_data/split.tar.gz
 tar xf objaverse_occ_v5_ids.tar.gz && rm objaverse_occ_v5_ids.tar.gz
 tar xf split.tar.gz && rm split.tar.gz
 mkdir -p objaverse
@@ -100,6 +109,17 @@ mv split objaverse/
 ```
 
 </details>
+
+## Pretrained Checkpoints (ShapeNet)
+
+Pretrained checkpoints are hosted on the MeshFlow Hugging Face dataset repository.
+
+| Category | Config | Checkpoint |
+| --- | --- | --- |
+| bench | `configs/snet/base-120m-ot-v-bench.yaml` | [`v1/120m-ot-v-bench/checkpoints/last.pt`](https://huggingface.co/datasets/qsun2001/meshflow/resolve/main/v1/120m-ot-v-bench/checkpoints/last.pt) |
+| chair | `configs/snet/base-120m-ot-v-chair.yaml` | [`v1/120m-ot-v-chair/checkpoints/last.pt`](https://huggingface.co/datasets/qsun2001/meshflow/resolve/main/v1/120m-ot-v-chair/checkpoints/last.pt) |
+| lamp | `configs/snet/base-120m-ot-v-lamp.yaml` | [`v1/120m-ot-v-lamp/checkpoints/last.pt`](https://huggingface.co/datasets/qsun2001/meshflow/resolve/main/v1/120m-ot-v-lamp/checkpoints/last.pt) |
+| table | `configs/snet/base-120m-ot-v-table.yaml` | [`v1/120m-ot-v-table/checkpoints/last.pt`](https://huggingface.co/datasets/qsun2001/meshflow/resolve/main/v1/120m-ot-v-table/checkpoints/last.pt) |
 
 ## Training
 

@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MeshFlow: Mesh Generation with Equivariant Flow Matching</title>
+    <meta name="description" content="Project page for MeshFlow: Mesh Generation with Equivariant Flow Matching.">
+    <link rel="stylesheet" href="styles.css">
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.164.1/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.164.1/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <main>
+      <section class="hero section-hero" aria-labelledby="title">
+        <div class="container narrow">
+          <h1 id="title">MeshFlow: Mesh Generation with Equivariant Flow Matching</h1>
+          <div class="authors" aria-label="Authors">
+            <a href="https://qiisun.github.io/">Qi Sun</a><sup>1</sup>,
+            <a href="https://georgenakayama.github.io/">Kiyohiro Nakayama</a><sup>2</sup>,
+            <a href="https://nathanyanjing.github.io/">Jing Nathan Yan</a><sup>3</sup>,
+            <a href="https://www.cs.utexas.edu/~huangqx/">Qixing Huang</a><sup>4</sup>,
+            <a href="https://rush-nlp.com/">Alexander Rush</a><sup>3</sup>,
+          </div>
+          <div class="authors authors-secondary" aria-label="Authors continued">
+            <a href="https://geometry.stanford.edu/member/guibas/">Leonidas Guibas</a><sup>2</sup>,
+            <a href="https://stanford.edu/~gordonwz/">Gordon Wetzstein</a><sup>2</sup>,
+            <a href="https://scholar.google.com/citations?user=3s9f9VIAAAAJ&hl=zh-CN">Jing Liao</a><sup>1</sup>,
+            and <a href="https://www.guandaoyang.com/">Guandao Yang</a><sup>4</sup>
+          </div>
+          <div class="affiliations" aria-label="Affiliations">
+            <span><sup>1</sup>CityUHK</span>
+            <span><sup>2</sup>Stanford</span>
+            <span><sup>3</sup>Cornell Tech</span>
+            <span><sup>4</sup>UT Austin</span>
+          </div>
+          <p class="venue">SIGGRAPH 2026</p>
+          <div class="hero-links" aria-label="Project links">
+            <a class="hero-link" href="https://arxiv.org/abs/2606.12345">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h8l5 5v15H6z"/><path d="M14 2v6h6"/><text x="7" y="17">PDF</text></svg>
+              <span>Paper</span>
+            </a>
+            <a class="hero-link is-tbd" href="#" aria-disabled="true">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19 19 5"/><path d="m6 5 13 13"/><path d="M4 12h16"/></svg>
+              <span>Slides (TBD)</span>
+            </a>
+            <a class="hero-link" href="https://github.com/qiisun/MeshFlow">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 0 0-3.2 19.5c.5.1.7-.2.7-.5v-1.8c-2.9.6-3.5-1.2-3.5-1.2-.5-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 0 1.6 1.1 1.6 1.1.9 1.6 2.4 1.1 3 .9.1-.7.4-1.1.7-1.4-2.3-.3-4.7-1.1-4.7-5a3.9 3.9 0 0 1 1-2.7 3.6 3.6 0 0 1 .1-2.7s.8-.3 2.8 1a9.5 9.5 0 0 1 5 0c1.9-1.3 2.8-1 2.8-1a3.6 3.6 0 0 1 .1 2.7 3.9 3.9 0 0 1 1 2.7c0 3.9-2.4 4.7-4.7 5 .4.3.7.9.7 1.8V21c0 .3.2.6.7.5A10 10 0 0 0 12 2Z"/></svg>
+              <span>Code</span>
+            </a>
+            <a class="hero-link" href="https://huggingface.co/spaces/qiisun/MeshFlow">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z"/><path d="M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10Z"/><path d="M20 12h-8"/></svg>
+              <span>HF Demo</span>
+            </a>
+            <a class="hero-link" href="https://huggingface.co/datasets/qsun2001/meshflow">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 8 4.5v9L12 20l-8-4.5v-9z"/><path d="M4 6.5 12 11l8-4.5"/><path d="M12 11v9"/></svg>
+              <span>Model</span>
+            </a>
+          </div>
+          <figure class="teaser">
+            <img src="assets/meshflow-fastforward_v2_1440.gif" alt="MeshFlow teaser animation" />
+          </figure>
+        </div>
+      </section>
+
+      <section class="section section-abstract" aria-labelledby="abstract-title">
+        <div class="container text-column">
+          <h2 id="abstract-title">Abstract</h2>
+          <p>
+          Meshes are among the most common 3D scene representations, but directly generating meshes is challenging because the representation contains important symmetries, including permutation invariance of faces and vertices.
+          MeshFlow learns to generate triangle meshes directly as triangle soups, avoiding the need to serialize meshes into long autoregressive sequences.
+          We adopt equivariant optimal-transport flow matching models that respect the key symmetries of triangle soups: arbitrary permutations of faces and permutations of the vertices within each face.
+          </p>
+          <p>
+          Toward this goal, we propose a simple yet effective modification to the Diffusion Transformer architecture, resulting in a scalable network capable of modeling a velocity field while maintaining the desired equivariance.
+          We further introduce an optimal-transport-based training objective that improves convergence by eliminating supervision signals that violate these symmetries.
+          MeshFlow achieves mesh quality comparable to state-of-the-art autoregressive mesh generators while providing about an 18× speedup during inference.
+          </p>
+        </div>
+      </section>
+
+
+      <section class="section section-design" aria-labelledby="design-title">
+        <div class="container">
+          <!-- <h2 id="design-title">Method</h2> -->
+          <div class="method-block">
+            <div class="text-column method-copy">
+              <h3>Symmetries in Triangle Soups</h3>
+              <p>
+                MeshFlow represents a mesh as a triangle soup, an unordered set of
+                triangular faces. This representation has two nested symmetries: the
+                faces can be arbitrarily permuted, and the vertices inside each triangle
+                can be permuted without changing the represented geometry.
+              </p>
+            </div>
+            <div class="method-figures two-up">
+              <figure>
+                <svg class="sym-svg" viewBox="0 0 320 130" role="img" aria-label="Swapping two faces leaves the represented mesh unchanged">
+                  <g stroke="#333" stroke-width="1.5" stroke-linejoin="round">
+                    <polygon points="60,15 36,60 84,60" fill="#ffffff"/>
+                    <polygon points="36,60 60,105 84,60" fill="#ffffff"/>
+                    <polygon points="36,60 12,105 60,105" fill="#3fae6b"/>
+                    <polygon points="84,60 60,105 108,105" fill="#4f7fe0"/>
+                  </g>
+                  <g font-family="inherit">
+                    <line x1="145" y1="57" x2="175" y2="57" stroke="#555" stroke-width="1.6"/>
+                    <line x1="145" y1="67" x2="175" y2="67" stroke="#555" stroke-width="1.6"/>
+                  </g>
+                  <g transform="translate(200,0)" stroke="#333" stroke-width="1.5" stroke-linejoin="round">
+                    <polygon points="60,15 36,60 84,60" fill="#ffffff"/>
+                    <polygon points="36,60 60,105 84,60" fill="#ffffff"/>
+                    <polygon points="36,60 12,105 60,105" fill="#4f7fe0"/>
+                    <polygon points="84,60 60,105 108,105" fill="#3fae6b"/>
+                  </g>
+                </svg>
+                <figcaption>Swapping two faces leaves the represented mesh unchanged.</figcaption>
+              </figure>
+              <figure>
+                <svg class="sym-svg" viewBox="0 0 320 130" role="img" aria-label="Swapping two vertices within a face leaves the face unchanged">
+                  <g>
+                    <polygon points="60,18 14,104 106,104" fill="#ffffff" stroke="#333" stroke-width="1.5" stroke-linejoin="round"/>
+                    <circle cx="60" cy="18" r="6.5" fill="#3fae6b" stroke="#333" stroke-width="1.2"/>
+                    <circle cx="14" cy="104" r="6.5" fill="#4f7fe0" stroke="#333" stroke-width="1.2"/>
+                    <circle cx="106" cy="104" r="6.5" fill="#cfd6df" stroke="#333" stroke-width="1.2"/>
+                  </g>
+                  <g font-family="inherit">
+                    <line x1="145" y1="57" x2="175" y2="57" stroke="#555" stroke-width="1.6"/>
+                    <line x1="145" y1="67" x2="175" y2="67" stroke="#555" stroke-width="1.6"/>
+                  </g>
+                  <g transform="translate(200,0)">
+                    <polygon points="60,18 14,104 106,104" fill="#ffffff" stroke="#333" stroke-width="1.5" stroke-linejoin="round"/>
+                    <circle cx="60" cy="18" r="6.5" fill="#4f7fe0" stroke="#333" stroke-width="1.2"/>
+                    <circle cx="14" cy="104" r="6.5" fill="#3fae6b" stroke="#333" stroke-width="1.2"/>
+                    <circle cx="106" cy="104" r="6.5" fill="#cfd6df" stroke="#333" stroke-width="1.2"/>
+                  </g>
+                </svg>
+                <figcaption>Swapping two vertices inside a triangle leaves the face unchanged.</figcaption>
+              </figure>
+            </div>
+          </div>
+
+          <div class="method-block">
+            <div class="text-column method-copy">
+              <h3>Nested Optimal Transport</h3>
+              <p>
+                A naive noise-data correspondence can create training signals that depend
+                on arbitrary face and vertex orderings. MeshFlow defines the coupling cost
+                over the orbit of the triangle soup: an inner assignment first finds the
+                best vertex permutation for every face pair, and an outer Hungarian
+                assignment then matches faces using these symmetry-aware costs.
+              </p>
+            </div>
+            <figure class="wide-figure">
+              <img src="assets/ot.png" alt="Nested optimal transport coupling diagram">
+              <figcaption>Nested OT reduces path crossings by resolving vertex correspondences inside each candidate face match before solving the face-level assignment.</figcaption>
+            </figure>
+          </div>
+
+          <div class="method-block">
+            <div class="text-column method-copy">
+              <h3>Equivariant Diffusion Transformer</h3>
+              <p>
+                EquiDiT adapts a Diffusion Transformer-style architecture to triangle
+                soups without using positional encodings that would break equivariance.
+                It embeds vertices, pools them into face features, applies self-attention
+                over unordered faces, and broadcasts the updated face context back to
+                vertex-level predictions.
+              </p>
+            </div>
+            <figure class="wide-figure equidit-figure">
+              <img src="assets/equidit.png" alt="EquiDiT architecture diagram">
+              <figcaption>EquiDiT performs attention over face features while preserving equivariant vertex-level predictions.</figcaption>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+
+      <section class="section mesh-section section-meshes" aria-labelledby="mesh-title">
+        <div class="container">
+          <h2 id="mesh-title">Gallery</h2>
+          <div class="mesh-carousel">
+            <button class="gallery-nav gallery-prev" type="button" aria-label="Previous gallery items">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6 9 12l6 6"/></svg>
+            </button>
+            <div class="mesh-grid" data-prefix="assets/meshes/" data-page-size="15" data-items="chair-001,lamp-001,bench-001,table-001,chair-002,lamp-002,bench-002,table-002,chair-003,lamp-003,bench-003,table-003,chair-004,lamp-004,table-004,chair-005,lamp-005,bench-037,table-005,chair-006,lamp-006,bench-036,table-006,chair-007,lamp-007,bench-035,table-007,chair-008,lamp-008,bench-034,table-008,chair-009,lamp-009,bench-033,table-009,chair-010,lamp-010,bench-032,table-010,chair-011,lamp-011,bench-031,table-011,chair-012,lamp-012,bench-030,table-012,chair-013,lamp-013,bench-029,table-013,chair-014,lamp-014,bench-028,table-014,chair-015,lamp-015,bench-027,table-015,chair-016,lamp-016,bench-026,table-016,chair-017,lamp-017,bench-025,table-017,chair-018,lamp-018,bench-024,table-018,chair-019,lamp-019,bench-023,table-019,chair-020,lamp-020,bench-022,table-020,chair-021,lamp-021,bench-021,table-021,chair-022,lamp-022,bench-020,table-022,chair-023,lamp-023,bench-019,table-023,chair-024,lamp-024,bench-018,table-024,lamp-025,bench-017,table-025,lamp-026,bench-016,table-026,lamp-027,bench-015,table-027,lamp-028,bench-014,lamp-029,bench-013,lamp-030,bench-012,lamp-031,bench-011,lamp-032,bench-010,lamp-033,bench-009,lamp-034,bench-008,lamp-035,bench-007,bench-006,bench-005,bench-004" aria-label="Mixed MeshFlow generated mesh samples" tabindex="0"></div>
+            <button class="gallery-nav gallery-next" type="button" aria-label="Next gallery items">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+            </button>
+            <div class="gallery-dots" aria-label="Gallery pages"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-limitations" aria-labelledby="limitations-title">
+        <div class="container text-column">
+          <h2 id="limitations-title">Limitations</h2>
+          <p>
+            <strong>Cost of optimal-transport coupling.</strong> While our nested optimal-transport
+            coupling improves training, it relies on the Hungarian algorithm, whose <em>O</em>(N<sup>3</sup>)
+            cost over faces becomes expensive for large meshes. Faster approximations or alternative
+            assignment schemes are a promising direction for reducing this overhead.
+          </p>
+          <p>
+            <strong>Imperfect generation quality.</strong> Generated meshes still occasionally contain
+            artifacts such as missing or overlapping faces, which may require light post-processing to repair.
+          </p>
+        </div>
+      </section>
+
+      <section class="section section-bibtex" id="bibtex" aria-labelledby="bibtex-title">
+        <div class="container text-column">
+          <h2 id="bibtex-title">BibTeX</h2>
+          <pre><code>@inproceedings{meshflow,
+  title     = {MeshFlow: Mesh Generation with Equivariant Flow Matching},
+  author    = {Sun, Qi and Nakayama, Kiyohiro and Yan, Jing Nathan and Huang, Qixing and Rush, Alexander and Guibas, Leonidas and Wetzstein, Gordon and Liao, Jing and Yang, Guandao},
+  booktitle = {ACM SIGGRAPH Conference Papers},
+  year      = {2026}
+}</code></pre>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="container">
+        <p>Website layout follows Nerifes and related project pages.</p>
+      </div>
+    </footer>
+
+    <script type="module">
+      import * as THREE from 'three';
+      import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+      import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+
+      const createMeshViewer = (viewer, meshUrl) => {
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 100);
+        camera.position.set(2.7, 1.65, 3.4);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.setClearColor(0xffffff, 0);
+        viewer.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.autoRotate = false;
+        controls.enablePan = false;
+        controls.target.set(0, 0.08, 0);
+
+        const keyLight = new THREE.DirectionalLight(0xffffff, 3.0);
+        keyLight.position.set(2.5, 5, 4);
+        scene.add(keyLight);
+
+        const fillLight = new THREE.DirectionalLight(0xffffff, 0.85);
+        fillLight.position.set(-3, 2, 2);
+        scene.add(fillLight);
+        scene.add(new THREE.HemisphereLight(0xffffff, 0xd8dee4, 1.65));
+
+        const material = new THREE.MeshStandardMaterial({
+          color: 0xb8b8b8,
+          roughness: 0.62,
+          metalness: 0.0,
+          flatShading: true,
+          side: THREE.DoubleSide,
+        });
+        const wireMaterial = new THREE.LineBasicMaterial({
+          color: 0x111111,
+          transparent: true,
+          opacity: 0.82,
+          depthTest: true,
+          depthWrite: false,
+        });
+
+        let disposed = false;
+        let frameId = 0;
+        const loadingLabel = viewer.querySelector('p');
+
+        new OBJLoader().load(
+          meshUrl,
+          (object) => {
+            if (disposed) {
+              return;
+            }
+            object.traverse((child) => {
+              if (child.isMesh) {
+                child.material = material;
+                child.geometry.computeVertexNormals();
+              }
+            });
+
+            const bounds = new THREE.Box3().setFromObject(object);
+            const center = bounds.getCenter(new THREE.Vector3());
+            const size = bounds.getSize(new THREE.Vector3());
+            const scale = 1.28 / Math.max(size.x, size.y, size.z);
+            object.position.sub(center);
+            object.scale.setScalar(scale);
+            object.rotation.set(-0.08, -0.55, 0.02);
+            scene.add(object);
+
+            object.updateMatrixWorld(true);
+            object.traverse((child) => {
+              if (child.isMesh) {
+                const wireframe = new THREE.WireframeGeometry(child.geometry);
+                const line = new THREE.LineSegments(wireframe, wireMaterial);
+                line.position.copy(child.getWorldPosition(new THREE.Vector3()));
+                line.quaternion.copy(child.getWorldQuaternion(new THREE.Quaternion()));
+                line.scale.copy(child.getWorldScale(new THREE.Vector3()));
+                scene.add(line);
+              }
+            });
+
+            if (loadingLabel) {
+              loadingLabel.remove();
+            }
+          },
+          undefined,
+          () => {
+            if (loadingLabel) {
+              loadingLabel.textContent = 'Mesh failed to load.';
+            }
+          }
+        );
+
+        const resize = () => {
+          const rect = viewer.getBoundingClientRect();
+          if (rect.width === 0 || rect.height === 0) {
+            return;
+          }
+          renderer.setSize(rect.width, rect.height, false);
+          camera.aspect = rect.width / rect.height;
+          camera.updateProjectionMatrix();
+        };
+
+        const animate = () => {
+          if (disposed) {
+            return;
+          }
+          resize();
+          controls.update();
+          renderer.render(scene, camera);
+          frameId = requestAnimationFrame(animate);
+        };
+
+        animate();
+
+        return () => {
+          disposed = true;
+          cancelAnimationFrame(frameId);
+          controls.dispose();
+          scene.traverse((child) => {
+            if (child.geometry) {
+              child.geometry.dispose();
+            }
+          });
+          material.dispose();
+          wireMaterial.dispose();
+          renderer.dispose();
+          renderer.forceContextLoss();
+          if (renderer.domElement && renderer.domElement.parentNode) {
+            renderer.domElement.parentNode.removeChild(renderer.domElement);
+          }
+        };
+      };
+
+      document.querySelectorAll('.mesh-carousel').forEach((carousel) => {
+        const gallery = carousel.querySelector('.mesh-grid[data-prefix]');
+        const previousButton = carousel.querySelector('.gallery-prev');
+        const nextButton = carousel.querySelector('.gallery-next');
+        const dots = carousel.querySelector('.gallery-dots');
+
+        if (!gallery || !previousButton || !nextButton || !dots) {
+          return;
+        }
+
+        const prefix = gallery.dataset.prefix;
+        const extension = gallery.dataset.extension || 'obj';
+        const items = gallery.dataset.items
+          ? Array.from(new Set(gallery.dataset.items.split(',').map((item) => item.trim()).filter(Boolean)))
+          : Array.from({ length: Number.parseInt(gallery.dataset.count || '0', 10) }, (_, index) => String(index).padStart(6, '0'));
+
+        // Hard cap on simultaneously live WebGL contexts (browser limit is ~16).
+        const MAX_VIEWERS = 15;
+        // Arrow buttons / dots advance by this many columns at a time.
+        const COLUMNS_PER_STEP = 2;
+
+        const cards = items.map((sampleId) => {
+          const figure = document.createElement('figure');
+          figure.className = 'mesh-card';
+
+          const viewer = document.createElement('div');
+          viewer.className = 'mesh-viewer';
+          viewer.innerHTML = '<p>Loading mesh...</p>';
+
+          figure.appendChild(viewer);
+          gallery.appendChild(figure);
+
+          return { sampleId, figure, viewer, dispose: null };
+        });
+
+        const resetPlaceholder = (card) => {
+          card.viewer.innerHTML = '<p>Loading mesh...</p>';
+        };
+
+        // Show this many mesh columns across the visible gallery width (3 rows each).
+        const VISIBLE_COLUMNS = 4;
+        const layoutColumns = () => {
+          const cs = getComputedStyle(gallery);
+          const gap = Number.parseFloat(cs.columnGap) || 12;
+          const padLeft = Number.parseFloat(cs.paddingLeft) || 0;
+          const padRight = Number.parseFloat(cs.paddingRight) || 0;
+          const avail = gallery.clientWidth - padLeft - padRight;
+          let cols = VISIBLE_COLUMNS;
+          let width = (avail - (cols - 1) * gap) / cols;
+          while (cols > 2 && width < 140) {
+            cols -= 1;
+            width = (avail - (cols - 1) * gap) / cols;
+          }
+          gallery.style.setProperty('--card-width', `${Math.max(120, Math.floor(width))}px`);
+        };
+
+        // Keep WebGL contexts only for the cards closest to the viewport,
+        // never exceeding MAX_VIEWERS, disposing the rest as they scroll away.
+        const updateWindow = () => {
+          const viewLeft = gallery.scrollLeft;
+          const viewRight = viewLeft + gallery.clientWidth;
+          const center = (viewLeft + viewRight) / 2;
+
+          const visible = cards.filter((card) => {
+            const left = card.figure.offsetLeft;
+            const right = left + card.figure.offsetWidth;
+            return right > viewLeft - 1 && left < viewRight + 1;
+          });
+
+          visible.sort((a, b) => {
+            const ca = a.figure.offsetLeft + a.figure.offsetWidth / 2;
+            const cb = b.figure.offsetLeft + b.figure.offsetWidth / 2;
+            return Math.abs(ca - center) - Math.abs(cb - center);
+          });
+
+          const keep = new Set(visible.slice(0, MAX_VIEWERS));
+
+          cards.forEach((card) => {
+            if (card.dispose && !keep.has(card)) {
+              card.dispose();
+              card.dispose = null;
+              resetPlaceholder(card);
+            }
+          });
+
+          keep.forEach((card) => {
+            if (!card.dispose) {
+              card.dispose = createMeshViewer(card.viewer, `${prefix}${card.sampleId}.${extension}`);
+            }
+          });
+        };
+
+        const getColumnStep = () => {
+          // Column pitch measured from two cards one column apart (3 rows per column).
+          if (cards.length > 3) {
+            const pitch = cards[3].figure.offsetLeft - cards[0].figure.offsetLeft;
+            if (pitch > 1) {
+              return pitch * COLUMNS_PER_STEP;
+            }
+          }
+          const firstCard = cards[0] && cards[0].figure;
+          const columnGap = Number.parseFloat(getComputedStyle(gallery).columnGap) || 0;
+          const width = firstCard ? firstCard.offsetWidth : 0;
+          if (width > 1) {
+            return (width + columnGap) * COLUMNS_PER_STEP;
+          }
+          return Math.max(120, gallery.clientWidth / 3);
+        };
+
+        const getMaxScroll = () => Math.max(0, gallery.scrollWidth - gallery.clientWidth);
+
+        const buildDots = () => {
+          const step = getColumnStep();
+          const pageCount = Math.max(1, Math.ceil(getMaxScroll() / step) + 1);
+          if (dots.children.length !== pageCount) {
+            dots.replaceChildren();
+            for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
+              const dot = document.createElement('button');
+              dot.type = 'button';
+              dot.className = 'gallery-dot';
+              dot.setAttribute('aria-label', `Go to gallery page ${pageIndex + 1}`);
+              dot.addEventListener('click', () => {
+                gallery.scrollTo({
+                  left: Math.min(pageIndex * getColumnStep(), getMaxScroll()),
+                  behavior: 'smooth',
+                });
+              });
+              dots.appendChild(dot);
+            }
+          }
+          return pageCount;
+        };
+
+        const updateDots = () => {
+          const step = getColumnStep();
+          const pageCount = buildDots();
+          const current = Math.min(pageCount - 1, Math.round(gallery.scrollLeft / step));
+          Array.from(dots.children).forEach((dot, pageIndex) => {
+            dot.classList.toggle('is-active', pageIndex === current);
+            dot.setAttribute('aria-current', pageIndex === current ? 'true' : 'false');
+          });
+        };
+
+        let dotsRaf = 0;
+        let settleTimer = 0;
+        gallery.addEventListener('scroll', () => {
+          if (!dotsRaf) {
+            dotsRaf = requestAnimationFrame(() => {
+              dotsRaf = 0;
+              updateDots();
+            });
+          }
+          clearTimeout(settleTimer);
+          settleTimer = setTimeout(updateWindow, 140);
+        }, { passive: true });
+
+        previousButton.addEventListener('click', () => {
+          gallery.scrollBy({ left: -getColumnStep(), behavior: 'smooth' });
+        });
+        nextButton.addEventListener('click', () => {
+          gallery.scrollBy({ left: getColumnStep(), behavior: 'smooth' });
+        });
+        window.addEventListener('resize', () => {
+          layoutColumns();
+          updateDots();
+          updateWindow();
+        });
+
+        layoutColumns();
+        buildDots();
+        updateDots();
+        updateWindow();
+      });
+    </script>
+  </body>
+</html>

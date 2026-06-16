@@ -1,0 +1,11 @@
+downloaded_data
+__pycache__
+debug/
+tensorboard_logs/*
+output/
+tools/run_train*
+tools/bench_gpu_utility.py
+.vscode/
+logs/
+tools/launch_check.sh
+nohup*

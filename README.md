@@ -206,12 +206,12 @@ Supported category names include `bench`, `bottle`, `chair`, `display`, `monitor
 
 Metrics obtained by running the inference and evaluation commands above on the released checkpoints. Chamfer distance (CD) is used for MMD, COV, and 1-NNA. Lower is better for MMD and JSD; higher is better for COV; closer to 50% is better for 1-NNA. MMD and JSD are reported ×10³.
 
-| Category | # meshes | MMD-CD ↓ | COV-CD (%) ↑ | 1-NNA-CD (%) →50 | JSD ↓ |
-| --- | --- | --- | --- | --- | --- |
-| bench | 56 | 14.12 | 57.14 | 52.68 | 27.22 |
-| chair | 310 | 16.50 | 51.29 | 53.23 | 14.75 |
-| lamp | 62 | 22.59 | 53.23 | 54.03 | 32.78 |
-| table | 514 | 15.82 | 50.00 | 58.17 | 18.58 |
+| Category | 1-NNA-CD (%) | COV-CD (%) ↑ | MMD-CD ↓ | JSD ↓ |
+| --- | --- | --- | --- | --- |
+| bench | 52.68 | 57.14 | 14.12 | 27.22 |
+| chair | 53.23 | 51.29 | 16.50 | 14.75 |
+| lamp | 54.03 | 53.23 | 22.59 | 32.78 |
+| table | 58.17 | 50.00 | 15.82 | 18.58 |
 
 </details>
 

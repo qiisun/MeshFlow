@@ -18,9 +18,9 @@
 
 <p>
   <a href="https://qiisun.github.io/MeshFlow//"><img src="https://img.shields.io/badge/Project-Page-4f7cff" alt="Project Page"></a>
+  <a href="https://arxiv.org/abs/2606.23489"><img src="https://img.shields.io/badge/arXiv-2606.23489-b31b1b" alt="arXiv Paper"></a>
   <a href="https://huggingface.co/datasets/qsun2001/meshflow"><img src="https://img.shields.io/badge/Hugging%20Face-Dataset-ffcc4d" alt="Hugging Face Dataset"></a>
   <a href="https://github.com/qiisun/MeshFlow2"><img src="https://img.shields.io/badge/GitHub-Code-181717" alt="GitHub Code"></a>
-  <a href="#cite"><img src="https://img.shields.io/badge/Paper-Cite-b31b1b" alt="Paper Citation"></a>
 </p>
 </div>
 

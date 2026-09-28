@@ -32,6 +32,8 @@ MeshFlow is an unconditional mesh generation pipeline based on equivariant flow 
 
 The code is tested with Python 3.10, PyTorch 2.4.1, CUDA 12.4, and FlashAttention 2.6.3.
 
+For a from-scratch single-GPU setup on a clean Ubuntu installation, see the [Single-GPU Quick Start](README.single-gpu.md).
+
 ```bash
 conda create -n mflow python=3.10 -y
 conda activate mflow

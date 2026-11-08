@@ -204,7 +204,7 @@ def do_train(train_config, accelerator):
         if checkpoint_files:
             checkpoint_files.sort(key=lambda x: int(os.path.basename(x).split('.')[0]))
             latest_checkpoint = checkpoint_files[-1]
-            checkpoint = torch.load(latest_checkpoint, map_location=lambda storage, loc: storage)
+            checkpoint = torch.load(latest_checkpoint, map_location=lambda storage, loc: storage, weights_only=True)
             model.load_state_dict(checkpoint['model'])
             ema.load_state_dict(checkpoint['ema'])
             train_steps = int(latest_checkpoint.split('/')[-1].split('.')[0])
